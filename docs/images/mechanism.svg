@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="610" viewBox="0 0 1100 610" role="img" aria-labelledby="title desc">
+<title id="title">Conceptual one-servo butterfly linkage</title><desc id="desc">Two wing levers pivot about hinges and connect through separate rods to a central servo horn. Concept only, not a dimensioned or tested fabrication plan.</desc>
+<defs><linearGradient id="wing" x2="1" y2="1"><stop stop-color="#f6a9c9"/><stop offset="1" stop-color="#b5b4ec"/></linearGradient></defs>
+<rect width="1100" height="610" rx="30" fill="#f4eff8"/>
+<g font-family="Arial,sans-serif" fill="#352735">
+<text x="55" y="62" font-size="28" font-weight="700">One servo. Mirrored movement.</text><text x="55" y="94" font-size="16" fill="#786b7d">Linkage concept only · not to scale · dimensions and clearances must be designed for your mechanism.</text>
+<path d="M430 320C245 325 125 195 175 150C230 95 370 209 430 320Z" fill="url(#wing)" stroke="#b48eb8" stroke-width="2"/>
+<path d="M670 320C855 325 975 195 925 150C870 95 730 209 670 320Z" fill="url(#wing)" stroke="#b48eb8" stroke-width="2"/>
+<path d="M345 270L450 347M755 270L650 347" stroke="#80728d" stroke-width="9" stroke-linecap="round"/>
+<circle cx="405" cy="314" r="12" fill="#fff" stroke="#534958" stroke-width="4"/><circle cx="695" cy="314" r="12" fill="#fff" stroke="#534958" stroke-width="4"/>
+<rect x="488" y="385" width="124" height="100" rx="17" fill="#b7c9e2" stroke="#80728d" stroke-width="2"/>
+<text x="517" y="461" font-size="21" font-weight="700">SG90</text>
+<path d="M510 406H590" stroke="#534958" stroke-width="11" stroke-linecap="round"/>
+<circle cx="550" cy="406" r="12" fill="#fff" stroke="#534958" stroke-width="4"/>
+<path d="M450 347L510 406M650 347L590 406" stroke="#cc729d" stroke-width="5"/>
+<g fill="#fff" stroke="#cc729d" stroke-width="3"><circle cx="450" cy="347" r="5"/><circle cx="650" cy="347" r="5"/><circle cx="510" cy="406" r="5"/><circle cx="590" cy="406" r="5"/></g>
+<text x="100" y="367" font-size="17">Wing hinge</text><path d="M210 361H343L392 319" stroke="#a294ac" fill="none"/>
+<text x="754" y="367" font-size="17">Low-friction hinge</text><path d="M749 355L709 321" stroke="#a294ac" fill="none"/>
+<text x="259" y="436" font-size="17">Linkage rod</text><path d="M367 430L476 378" stroke="#a294ac" fill="none"/>
+<text x="702" y="436" font-size="17">Horn / crank</text><path d="M691 430L602 410" stroke="#a294ac" fill="none"/>
+<rect x="55" y="524" width="990" height="49" rx="16" fill="#fff"/>
+<text x="81" y="554" font-size="16">Insulate the clip base, cover pinch points and keep hair away. Power off before adjusting rods or the horn.</text>
+</g></svg>

@@ -1,0 +1,27 @@
+{
+  "appId": "com.parthsancheti.wingsonhair",
+  "appName": "Wings On Hair",
+  "webDir": "dist",
+  "backgroundColor": "#0c0b14",
+  "loggingBehavior": "debug",
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "backgroundColor": "#0c0b14",
+    "allowMixedContent": false
+  },
+  "plugins": {
+    "SystemBars": {
+      "insetsHandling": "css",
+      "initialViewportFitValueHint": "cover",
+      "style": "DARK",
+      "hidden": false
+    },
+    "StatusBar": {
+      "overlaysWebView": true,
+      "style": "DARK",
+      "backgroundColor": "#0c0b14"
+    }
+  }
+}

@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="730" viewBox="0 0 1100 730" role="img" aria-labelledby="title desc">
+<title id="title">Wings On Hair bench wiring</title><desc id="desc">USB powers ESP32-C3. GPIO 4 connects to servo signal. A separate regulated supply powers the servo. ESP32 ground, servo ground and supply negative are connected. No positive supply connection to the USB-powered ESP32.</desc>
+<defs><linearGradient id="bg" x2="1" y2="1"><stop stop-color="#fff4fa"/><stop offset="1" stop-color="#edf3fa"/></linearGradient></defs>
+<rect width="1100" height="730" rx="30" fill="url(#bg)"/>
+<g font-family="Arial,sans-serif" fill="#352735">
+<text x="55" y="62" font-size="29" font-weight="700">Three connections. One shared ground.</text>
+<text x="55" y="94" font-size="16" fill="#786b7d">Functional bench diagram · Locate GPIO labels on your exact board; this is not a pin-position map.</text>
+<rect x="70" y="176" width="310" height="234" rx="24" fill="#fff" stroke="#c9b5cf" stroke-width="2"/>
+<text x="100" y="217" font-size="24" font-weight="700">ESP32-C3</text><text x="100" y="244" font-size="15" fill="#786b7d">USB-powered development board</text>
+<text x="287" y="288" font-size="17">GPIO 4</text><circle cx="380" cy="282" r="6" fill="#d59035"/>
+<text x="310" y="377" font-size="17">GND</text><circle cx="380" cy="370" r="6" fill="#534958"/>
+<path d="M158 176v-35h130" fill="none" stroke="#8c8bad" stroke-width="5"/><text x="298" y="147" font-size="15" fill="#786b7d">USB data cable / PC</text>
+<rect x="720" y="176" width="300" height="234" rx="24" fill="#fff" stroke="#c9b5cf" stroke-width="2"/>
+<text x="751" y="217" font-size="24" font-weight="700">Positional SG90</text><text x="751" y="244" font-size="15" fill="#786b7d">One servo · two linked wings</text>
+<text x="742" y="288" font-size="16">Signal (orange / yellow)</text><circle cx="720" cy="282" r="6" fill="#d59035"/>
+<text x="742" y="333" font-size="16">Power (red)</text><circle cx="1020" cy="327" r="6" fill="#dc6683"/>
+<text x="742" y="377" font-size="16">Ground (brown / black)</text><circle cx="720" cy="370" r="6" fill="#534958"/>
+<path d="M380 282H720" stroke="#d59035" stroke-width="5" fill="none"/><text x="465" y="269" font-size="15" fill="#9e6b20">3.3 V PWM signal</text>
+<path d="M380 370H720M550 370V584H720" stroke="#534958" stroke-width="5" fill="none"/><circle cx="550" cy="370" r="7" fill="#534958"/>
+<text x="399" y="403" font-size="15" fill="#534958">Common ground</text>
+<rect x="720" y="485" width="300" height="130" rx="24" fill="#fff" stroke="#c9b5cf" stroke-width="2"/>
+<text x="745" y="522" font-size="20" font-weight="700">Regulated servo supply</text><text x="745" y="550" font-size="15" fill="#786b7d">Typically 5 V · match your servo</text><text x="745" y="587" font-size="15">Negative (−)</text><text x="946" y="587" font-size="15">(+) </text>
+<circle cx="720" cy="584" r="6" fill="#534958"/><circle cx="1020" cy="584" r="6" fill="#dc6683"/>
+<path d="M1020 327H1055V584H1020" stroke="#dc6683" stroke-width="5" fill="none"/>
+<rect x="70" y="454" width="430" height="161" rx="22" fill="#f9e5ee"/>
+<text x="95" y="487" font-size="17" font-weight="700">At the servo connector</text>
+<text x="95" y="515" font-size="15">Add 470–1000 µF (≥10 V) + 100 nF</text><text x="95" y="540" font-size="15">across power and ground. Check polarity.</text><text x="95" y="576" font-size="15">Keep motor power off during wiring.</text>
+<rect x="55" y="647" width="990" height="49" rx="16" fill="#352735"/>
+<text x="80" y="677" font-size="16" fill="white">Never power the servo from GPIO / 3V3. Do not join servo + to USB-powered ESP32 VIN.</text>
+</g></svg>

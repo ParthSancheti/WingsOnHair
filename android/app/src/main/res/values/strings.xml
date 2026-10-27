@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Wings On Hair</string>
+    <string name="title_activity_main">Wings On Hair</string>
+    <string name="package_name">com.parthsancheti.wingsonhair</string>
+    <string name="custom_url_scheme">com.parthsancheti.wingsonhair</string>
+</resources>
