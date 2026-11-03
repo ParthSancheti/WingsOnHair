@@ -66,7 +66,7 @@ test('short presses blur the surroundings and holding previews without selecting
   const pulse = page.locator('[data-mode="2"]');
   await pulse.hover(); await page.mouse.down();
   await expect(pulse).toHaveClass(/is-pressed/);
-  expect(await page.locator('.hero-region').evaluate(element => getComputedStyle(element).filter)).toContain('blur(2px)');
+  await expect(page.locator('.hero-region')).toHaveCSS('filter', 'blur(2px)');
   await page.mouse.up();
   await expect(pulse).not.toHaveClass(/is-pressed/);
   await expect(page.locator('#current-mood')).toHaveText('Pulse');
