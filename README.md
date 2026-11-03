@@ -3,7 +3,7 @@
 <p align="center">A little movement. Entirely yours.<br>Android app · ESP32-C3 firmware · A butterfly you can build</p>
 <p align="center"><a href="https://github.com/ParthSancheti/WingsOnHair/releases/latest">Download APK & firmware</a> · <a href="docs/HARDWARE.md">Parts & wiring</a> · <a href="docs/CUSTOMIZE.md">Make your own version</a></p>
 
-**Version 2.5 · Created by [Parth Sancheti](https://github.com/ParthSancheti)**
+**Version 2.6 · Created by [Parth Sancheti](https://github.com/ParthSancheti)**
 
 A simple companion for a moving butterfly hair clip. Your phone sends Bluetooth LE commands to an ESP32-C3; one positional SG90 servo moves two mechanically linked wings. This repository includes the complete app, native Android project, Arduino firmware, illustrated wiring guide, and build instructions. No account, backend, or paid API is needed.
 
@@ -60,6 +60,8 @@ Browser Bluetooth needs supported Chrome/Edge at `localhost` or HTTPS. A plain H
 4. Tap the butterfly for one quick flutter that returns to the previous motion. Hold a mood to preview it locally; choose **Use…** to apply it.
 5. Use the moon/sun for appearance. Tap the circular app icon for About, update checks, and Replay welcome.
 
+With v2.6 firmware, a 3.3 V touch sensor on ESP32-C3 **GPIO 3** cycles the same four modes and Pause without the phone. When connected, the app follows the accessory's reported mode, running state and rough runtime estimate. It checks GitHub for a newer release when opened or resumed and shows a direct APK download link when one is attached to that release. No installation occurs automatically.
+
 | App mood | Firmware mode | Motion |
 | --- | --- | --- |
 | Calm | 1 · Velvet Breeze | Slow, gentle flutters |
@@ -81,9 +83,11 @@ Start with one ESP32-C3 board, a positional SG90 with horn, a regulated servo su
 
 ![Bench wiring: USB-powered ESP32-C3, GPIO 4 to servo signal, separate servo power and shared ground](docs/images/wiring.svg)
 
+![Touch sensor VCC to 3V3, GND to GND, OUT to GPIO 3](docs/images/touch-wiring.svg)
+
 **Start on the bench with the linkage removed.** Never power the servo from a GPIO or the board's 3.3 V rail. Calibrate before attaching wings or wearing the clip. The diagram is functional, not a physical pin map: locate GPIO 4 and GND on your exact board.
 
-The complete [Arduino sketch](firmware/WingsOnHair_Firmware/WingsOnHair_Firmware.ino) uses nonblocking 20 ms updates, Bezier motion, transient-flutter restoration, six-byte command validation, telemetry and graceful park/detach on stop or disconnect. It compiles with **Arduino-ESP32 3.3.12** and **NimBLE-Arduino 2.5.2**. No Servo library is needed.
+The complete [Arduino sketch](firmware/WingsOnHair_Firmware/WingsOnHair_Firmware.ino) uses nonblocking 20 ms updates, Bezier motion, a gentle greeting flap two seconds after power-up, touch mode switching, six-byte command validation, telemetry and graceful park/detach. It targets **Arduino-ESP32 3.3.12** and **NimBLE-Arduino 2.5.2**. No Servo library is needed.
 
 ```sh
 arduino-cli config add board_manager.additional_urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
@@ -146,6 +150,7 @@ src/ui.js                       SVG butterfly, logo and icons
 src/interactions.js             Press / hold / keyboard feedback
 src/services/ble.js             Native BLE, Web Bluetooth, Preview
 src/services/protocol.js        Packets, presets, shared motion curves
+src/services/live-state.js      Reconcile accessory mode with app controls
 src/services/updates.js         Public GitHub release lookup
 android/                        Android source and Gradle wrapper
 firmware/WingsOnHair_Firmware/   Complete ESP32-C3 sketch
@@ -161,7 +166,7 @@ tests/                         Service, interaction and browser tests
 
 The butterfly follows the servo angle **commanded** by the ESP32, subject to radio latency. An SG90 has no measured position output. One motor drives linked wings; two SVG wings do not mean two independent motors.
 
-Battery charge and health cannot be inferred from a regulated ESP32 supply. Firmware defaults to battery unavailable; the opt-in calibrated runtime estimate is labelled and resets on boot. No fabricated voltage or health measurements appear. Flash firmware over USB; the About screen checks GitHub releases but does not install software silently.
+Battery charge and health cannot be inferred from a regulated ESP32 supply. The v2.6 firmware reports a **rough runtime estimate** for the reported 150 mAh cell, assuming a full charge at boot and unmeasured current draw. It resets on boot and is not measured state of charge or a safety cutoff. Flash firmware over USB; the app checks public GitHub releases and offers a direct APK link, but does not install software silently.
 
 ## Privacy and reuse
 

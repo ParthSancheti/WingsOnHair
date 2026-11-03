@@ -39,7 +39,7 @@ jobs:
           ./gradlew assembleDebug --no-daemon
       - uses: actions/upload-artifact@v4
         with:
-          name: wings-on-hair-2.5-debug
+          name: wings-on-hair-2.6-debug
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
       - name: Upload browser traces on failure
@@ -69,6 +69,6 @@ jobs:
         run: arduino-cli compile --fqbn esp32:esp32:esp32c3 --output-dir firmware-build ./firmware/WingsOnHair_Firmware
       - uses: actions/upload-artifact@v4
         with:
-          name: wings-on-hair-2.5-firmware
+          name: wings-on-hair-2.6-firmware
           path: firmware-build/
           if-no-files-found: error

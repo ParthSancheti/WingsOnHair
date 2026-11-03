@@ -49,8 +49,15 @@ function asDataView(input) {
 
 export function decodeTelemetry(input, receivedAt = Date.now()) {
   const view = asDataView(input);
-  if (view.byteLength !== 16) throw new RangeError('Unexpected telemetry length; expected 16 bytes.');
-  if (view.getUint8(0) !== 0x57 || view.getUint8(1) !== 1) throw new Error('Unsupported Wings On Hair firmware protocol.');
+  if (![16, 19].includes(view.byteLength)) throw new RangeError('Unexpected telemetry length; expected 16 or 19 bytes.');
+  const version = view.getUint8(1);
+  if (view.getUint8(0) !== 0x57 || !((version === 1 && view.byteLength === 16) || (version === 2 && view.byteLength === 19))) throw new Error('Unsupported Wings On Hair firmware protocol.');
+  const bounds = version === 2 ? {
+    minAngle: integerInRange(view.getUint8(16), 15, 110, 'Telemetry minimum'),
+    maxAngle: integerInRange(view.getUint8(17), 15, 110, 'Telemetry maximum'),
+    selectedMode: integerInRange(view.getUint8(18), 1, 5, 'Selected mode'),
+  } : {};
+  if (version === 2 && bounds.minAngle >= bounds.maxAngle) throw new RangeError('Invalid telemetry angle range.');
   const mode = integerInRange(view.getUint8(3), 0, 6, 'Telemetry mode');
   const angle = integerInRange(view.getUint8(4), 15, 110, 'Commanded angle');
   const targetAngle = integerInRange(view.getUint8(5), 15, 110, 'Target angle');
@@ -62,7 +69,7 @@ export function decodeTelemetry(input, receivedAt = Date.now()) {
   const impulseX = integerInRange(view.getUint8(14), 5, 95, 'Telemetry impulse X');
   const impulseY = integerInRange(view.getUint8(15), 5, 95, 'Telemetry impulse Y');
   return {
-    sequence: view.getUint8(2), mode, angle, targetAngle,
+    ...bounds, sequence: view.getUint8(2), mode, angle, targetAngle,
     batteryPercent: batteryCode === 0 || batteryValue === 255 ? null : batteryValue,
     batteryKind: ['unavailable', 'estimated', 'measured'][batteryCode],
     uptimeSeconds: view.getUint32(8, true),

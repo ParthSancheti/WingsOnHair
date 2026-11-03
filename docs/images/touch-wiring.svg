@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="330" viewBox="0 0 900 330" role="img" aria-labelledby="title desc">
+<title id="title">Touch sensor to ESP32-C3 wiring</title>
+<desc id="desc">Touch sensor VCC connects to ESP32 3V3, GND to GND, and OUT to GPIO 3. Servo signal remains on GPIO 4.</desc>
+<rect width="900" height="330" rx="28" fill="#f7eff8"/>
+<g font-family="Arial,sans-serif" fill="#352735">
+<text x="42" y="53" font-size="26" font-weight="700">Touch control · three wires</text>
+<text x="42" y="80" font-size="15" fill="#776a7d">Use the printed labels on your sensor and board, not wire colors or pin position.</text>
+<rect x="42" y="112" width="300" height="162" rx="22" fill="white" stroke="#c9b5cf" stroke-width="2"/>
+<text x="66" y="147" font-size="21" font-weight="700">ESP32-C3</text>
+<text x="265" y="180" font-size="16">3V3</text><text x="265" y="219" font-size="16">GND</text><text x="249" y="258" font-size="16">GPIO 3</text>
+<rect x="558" y="112" width="300" height="162" rx="22" fill="white" stroke="#c9b5cf" stroke-width="2"/>
+<text x="582" y="147" font-size="21" font-weight="700">Touch sensor</text>
+<text x="584" y="180" font-size="16">VCC / +</text><text x="584" y="219" font-size="16">GND / −</text><text x="584" y="258" font-size="16">OUT / SIG</text>
+<path d="M342 175H558" stroke="#c4659c" stroke-width="5"/><path d="M342 214H558" stroke="#55505c" stroke-width="5"/><path d="M342 253H558" stroke="#6d82bd" stroke-width="5"/>
+<text x="42" y="310" font-size="14" fill="#776a7d">Sensor output must be 3.3 V safe. Servo signal is a separate wire on GPIO 4.</text>
+</g></svg>

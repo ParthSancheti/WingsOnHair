@@ -1,4 +1,4 @@
-# Wings On Hair firmware · 2.5
+# Wings On Hair firmware · 2.6
 
 ESP32-C3 BLE firmware for the companion app by **Parth Sancheti**. One SG90 drives mechanically linked left and right wings. The sketch uses Arduino-ESP32's LEDC peripheral directly; a separate Servo library is not required.
 
@@ -34,12 +34,15 @@ The companion app's GitHub update checker opens release information. This firmwa
 | SG90 ground, usually brown/black | Common ground with ESP32 and servo supply |
 | SG90 power, usually red | Suitable regulated servo supply, typically 5 V |
 | ESP32-C3 power | Your development board's specified USB/VIN input |
+| 3.3 V active-high touch module VCC / GND / OUT | ESP32-C3 3V3 / GND / GPIO 3 respectively; confirm the module's labels and output voltage |
 
 Confirm GPIO 4 against your actual board schematic. Avoid flash, USB, and strapping pins. Do not power an SG90 from an ESP32 GPIO or its 3.3 V rail. Use a supply that can handle servo startup/stall current, a common ground, and appropriate local decoupling. A single-cell battery needs a suitable regulator/boost supply and protected charging hardware; a fully charged Li-ion cell must not be connected directly to a 3.3 V input.
 
 Start with the linkage removed. Verify `SERVO_PULSE_MIN_US` (600) and `SERVO_PULSE_MAX_US` (2400), then calibrate for the particular servo. The application restricts requested motion to 15°–110°, but those angles are software conventions until the linkage is calibrated. Check the full sweep without binding before attaching wings or wearing the device. Quick-swap magnetic wings are a mechanical assembly feature, not something the firmware can detect.
 
-The default boot state has **no servo PWM**. A valid movement command attaches PWM. Stop or disconnect eases to the current minimum angle over 450 ms, holds 250 ms, then detaches PWM and drives the signal low. Detaching removes commanded holding torque; it does not switch off the servo's power rail. Select a mechanism that can rest safely without holding torque.
+On power-up, the sketch waits two seconds, makes **one gentle greeting flap** over the configured 45°–60° software range at 0.5 Hz, then parks and detaches PWM. A phone command or touch during the wait cancels the greeting. Start with the linkage removed and calibrate this range before wearing the clip: software angles cannot guarantee safe physical travel. Stop, or a disconnect while the phone controls motion, eases to the current minimum angle over 450 ms, holds 250 ms, then detaches PWM and drives the signal low. A touch-selected mode keeps running without a phone. Detaching removes commanded holding torque; it does not switch off the servo's power rail. Select a mechanism that can rest safely without holding torque.
+
+The updated sketch debounces an active-high touch signal on `TOUCH_PIN = 3` for 50 ms. One tap advances through the four app presets, then Pause, then the first preset again. A continuous hold counts once. The last input (phone command or touch) controls the mode. Check GPIO 3 on your board and power the sensor from 3.3 V only if its datasheet permits it. This feature is newer than the v2.5.0 release binaries; **compile and upload the v2.6 source** to use it.
 
 ## Motion protocol
 
@@ -91,12 +94,12 @@ The servo updates every 20 ms. Target changes are limited to 480°/s at the PWM 
 
 ### Telemetry
 
-Notifications are exactly **16 bytes**, sent at 10 Hz while connected. They fit the default BLE ATT MTU of 23, so the protocol does not rely on MTU negotiation. Battery estimate/unavailable fields are refreshed every five seconds and repeated in each motion notification.
+The v2.6 firmware sends **19-byte protocol-v2** notifications at 10 Hz while connected. They fit the default BLE ATT MTU of 23. The v2.6 app also accepts legacy 16-byte protocol-v1 notifications. Update the app before flashing the new firmware. Battery fields refresh every five seconds.
 
 | Byte | Meaning |
 | --- | --- |
 | 0 | Magic `0x57` |
-| 1 | Protocol version `1` |
+| 1 | Protocol version `2` |
 | 2 | Sequence number, wraps 255→0 |
 | 3 | Current mode 0–6 |
 | 4 | Rounded commanded PWM angle, degrees |
@@ -108,14 +111,17 @@ Notifications are exactly **16 bytes**, sent at 10 Hz while connected. They fit 
 | 13 | Frequency × 10 |
 | 14 | Impulse x percent |
 | 15 | Impulse y percent |
+| 16 | Minimum angle |
+| 17 | Maximum angle |
+| 18 | Last selected regular mode 1–5, retained while paused or fluttering |
 
 The sequence number permits the app to estimate telemetry continuity. It is not a radio RSSI measurement or a packet acknowledgement. During parking, active-motion is false and PWM-attached remains true until detachment. Uptime accumulation handles `millis()` rollover.
 
 ## Battery: what the hardware can actually tell us
 
-ESP32-C3 ADC channels read external analog inputs. Its ADC reference is not a built-in battery-voltage or state-of-charge measurement. A regulated 3.3 V supply also cannot reveal battery capacity or health. With no battery-sense hardware, the correct default is **unavailable** (`255`, kind `0`). The SG90 has no return wire for position or health telemetry either.
+ESP32-C3 ADC channels read external analog inputs. Its ADC reference is not a built-in battery-voltage or state-of-charge measurement. A regulated 3.3 V supply also cannot reveal battery capacity or health. The SG90 has no return wire for position or health telemetry either.
 
-An optional runtime estimate is implemented behind `WOH_ENABLE_RUNTIME_BATTERY_ESTIMATE=1`. Calibrate `ESTIMATE_CAPACITY_MAH`, `ESTIMATE_INITIAL_PERCENT`, `ESTIMATE_IDLE_MA`, and `ESTIMATE_SERVO_EXTRA_MA` for the actual assembly first. It integrates estimated current over uptime and reports kind `1`, never measured kind `2`. It resets on reboot, assumes a known initial charge, and does not account for charging, battery swaps, temperature, aging, load variation, or actual remaining charge. It must remain labelled **Estimated** in the UI; battery **health** remains unavailable. A real fuel gauge or suitable voltage-sense circuit is required for measurement.
+The v2.6 firmware enables a **rough runtime estimate** (`WOH_ENABLE_RUNTIME_BATTERY_ESTIMATE=1`) for the builder's reported **150 mAh** cell. It assumes the cell is fully charged at every boot and uses placeholder 35 mA idle plus 180 mA servo-extra draw until those values are measured on the real assembly. It integrates those assumptions over uptime and reports kind `1`, never measured kind `2`. It resets on reboot and does not detect charging, battery swaps, temperature, aging, actual current, actual remaining charge or a dangerously low cell. The app labels it **Estimated runtime left**. It is not battery protection; a suitable protected cell/charger is still required. A real fuel gauge or suitable voltage-sense circuit is required for measurement. Set the enable macro to `0` to report unavailable instead.
 
 ## Build verification
 
@@ -125,13 +131,14 @@ The binary bundle in `releases/WingsOnHair-v2.5-esp32c3.zip` includes a complete
 
 ## Bench acceptance checks
 
-1. Boot without a phone: confirm no PWM and no commanded movement.
-2. Connect, subscribe, and verify 16-byte frames and advancing sequence/uptime.
+1. Boot without a phone and with the linkage removed: confirm a two-second wait, one small greeting flap, then parking and PWM detachment. Tap during the wait to confirm the greeting is cancelled.
+2. Connect, subscribe, and verify 19-byte frames and advancing sequence/uptime. Reconnect while paused and confirm the selected mode and movement range are restored.
 3. Write each preset and custom packet; compare telemetry to the requested bounds.
 4. Try zero-, five-, seven-byte and out-of-range packets; motion must not change.
 5. Trigger mode 6 while running and while stopped; verify restoration and detachment.
 6. Stop, disable phone Bluetooth, and move out of range; verify graceful parking after the BLE stack detects disconnection and successful reconnection.
 7. Exercise min/max angles and high speeds with the linkage removed before loading it.
+8. With the updated source, tap the touch sensor five times and verify modes 1, 2, 3, 4, 0. Check that a held touch counts once, touch works without a phone, and a phone disconnect parks only phone-controlled motion.
 
 The source can be compile-verified without a connected board. Mechanical travel, power stability, BLE range, actual battery behavior, and servo timing require the real assembly and are not established by a successful compile.
 

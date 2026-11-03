@@ -1,5 +1,5 @@
 /**
- * Wings On Hair 2.5 — Parth Sancheti
+ * Wings On Hair 2.6 — Parth Sancheti
  * ESP32-C3 · Arduino-ESP32 3.3.12 · NimBLE-Arduino 2.5.2
  *
  * One SG90 drives the linked left/right wings. The reported angle is the
@@ -15,6 +15,14 @@
 // GPIO 4 is available on common C3 boards; confirm against YOUR board schematic.
 // Do not use flash/USB/strapping pins. Change this pin before flashing if needed.
 constexpr uint8_t SERVO_PIN = 4;
+// Three-pin, active-high capacitive touch module (for example TTP223).
+// Check GPIO 3 on your exact board; never feed a 5 V output into this pin.
+constexpr uint8_t TOUCH_PIN = 3;
+constexpr uint32_t TOUCH_DEBOUNCE_MS = 50;
+constexpr uint32_t STARTUP_FLAP_DELAY_MS = 2000;
+// Small, central sweep for the power-on greeting. Calibrate for your linkage.
+constexpr uint8_t STARTUP_FLAP_MIN_ANGLE = 45;
+constexpr uint8_t STARTUP_FLAP_MAX_ANGLE = 60;
 constexpr uint32_t SERVO_FREQUENCY_HZ = 50;
 constexpr uint8_t SERVO_RESOLUTION_BITS = 14;
 // Conservative SG90 starting calibration. Tune with the mechanism detached.
@@ -27,13 +35,13 @@ constexpr uint32_t PARK_HOLD_MS = 250;
 constexpr uint32_t TELEMETRY_PERIOD_MS = 100;
 constexpr uint32_t BATTERY_PERIOD_MS = 5000;
 
-// This is NOT state of charge or health sensing. Only enable after measuring
-// your own battery capacity/current and starting with a known charge level.
-// The estimate resets on every boot and does not detect charging or a swap.
+// Rough runtime estimate, NOT measured state of charge or battery health.
+// Assumes the 150 mAh cell is FULL at every boot. Tune current values after
+// measuring your actual assembly; charging or a battery swap is not detected.
 #ifndef WOH_ENABLE_RUNTIME_BATTERY_ESTIMATE
-#define WOH_ENABLE_RUNTIME_BATTERY_ESTIMATE 0
+#define WOH_ENABLE_RUNTIME_BATTERY_ESTIMATE 1
 #endif
-constexpr float ESTIMATE_CAPACITY_MAH = 300.0f;
+constexpr float ESTIMATE_CAPACITY_MAH = 150.0f;
 constexpr float ESTIMATE_INITIAL_PERCENT = 100.0f;
 constexpr float ESTIMATE_IDLE_MA = 35.0f;
 constexpr float ESTIMATE_SERVO_EXTRA_MA = 180.0f;
@@ -71,6 +79,7 @@ static uint16_t activeConnection = NO_CONNECTION;
 // All following state is owned by Arduino's loop task.
 static MotionCommand motion = {0, 15, 85, 8, 35, 65};
 static MotionCommand beforeFlutter = motion;
+static uint8_t selectedMode = 1;
 static bool servoAttached = false;
 static bool parking = false;
 static float commandedAngle = 15.0f;
@@ -88,6 +97,21 @@ static double estimatedConsumedMah = 0.0;
 static uint8_t batteryPercent = 255;
 static uint8_t batteryKind = 0;
 static uint8_t telemetrySequence = 0;
+enum class ControlSource : uint8_t { None, Phone, Touch };
+static ControlSource controlSource = ControlSource::None;
+static bool touchRaw = false;
+static bool touchStable = false;
+static uint32_t touchChangedMs = 0;
+static uint32_t bootStartedMs = 0;
+static bool startupFlapPending = true;
+
+// Keep these values in sync with src/services/protocol.js PRESETS.
+static const MotionCommand TOUCH_PRESETS[4] = {
+    {1, 25, 85, 6, 40, 20},   // Velvet Breeze
+    {2, 20, 100, 8, 20, 80},  // Golden Pulse
+    {3, 15, 110, 22, 15, 85}, // Euphoria Rush
+    {4, 35, 90, 4, 65, 15},   // Midnight Serenade
+};
 
 static float clampFloat(float value, float minimum, float maximum) {
   return fminf(maximum, fmaxf(minimum, value));
@@ -184,6 +208,7 @@ static void requestPark(uint32_t now) {
 static void applyCommand(const MotionCommand& command, uint32_t now) {
   if (command.mode == 6 && motion.mode != 6) beforeFlutter = motion;
   motion = command;
+  if (command.mode >= 1 && command.mode <= 5) selectedMode = command.mode;
   cyclePhase = 0.0;
   if (motion.mode == 0) {
     requestPark(now);
@@ -196,6 +221,45 @@ static void applyCommand(const MotionCommand& command, uint32_t now) {
   }
   lastServoMs = now;
   targetAngle = motion.minimum;
+}
+
+static void tickTouch(uint32_t now) {
+  const bool raw = digitalRead(TOUCH_PIN) == HIGH;
+  if (raw != touchRaw) {
+    touchRaw = raw;
+    touchChangedMs = now;
+  }
+  if (raw == touchStable || now - touchChangedMs < TOUCH_DEBOUNCE_MS) return;
+  touchStable = raw;
+  if (!touchStable) return;  // One mode change per touch, even if held.
+
+  startupFlapPending = false;
+  const uint8_t nextMode = motion.mode >= 1 && motion.mode <= 4
+      ? static_cast<uint8_t>(motion.mode + 1) : 1;
+  controlSource = ControlSource::Touch;
+  if (nextMode == 5) {
+    MotionCommand stop = motion;
+    stop.mode = 0;
+    applyCommand(stop, now);
+    Serial.println("Touch: paused.");
+  } else {
+    applyCommand(TOUCH_PRESETS[nextMode - 1], now);
+    Serial.printf("Touch: mode %u.\n", nextMode);
+  }
+}
+
+static void tickStartupFlap(uint32_t now) {
+  if (!startupFlapPending || now - bootStartedMs < STARTUP_FLAP_DELAY_MS) return;
+  startupFlapPending = false;
+  if (controlSource != ControlSource::None) return;  // A user command takes priority.
+
+  const MotionCommand rest = {0, STARTUP_FLAP_MIN_ANGLE, STARTUP_FLAP_MAX_ANGLE, 5, 40, 20};
+  const MotionCommand greeting = {6, STARTUP_FLAP_MIN_ANGLE, STARTUP_FLAP_MAX_ANGLE, 5, 40, 20};
+  motion = rest;
+  commandedAngle = STARTUP_FLAP_MIN_ANGLE;
+  targetAngle = STARTUP_FLAP_MIN_ANGLE;
+  applyCommand(greeting, now);  // One 2-second flap, then park and detach.
+  Serial.println("Power-on greeting: one gentle flap.");
 }
 
 static void tickServo(uint32_t now) {
@@ -258,17 +322,17 @@ static void sendTelemetry(uint32_t now, bool connected) {
   lastTelemetryMs = now;
   if (!connected || telemetryCharacteristic == nullptr) return;
   const uint32_t uptimeSeconds = static_cast<uint32_t>(uptimeMs / 1000ULL);
-  uint8_t packet[16] = {
-    0x57, 1, telemetrySequence++, motion.mode,
+  uint8_t packet[19] = {
+    0x57, 2, telemetrySequence++, motion.mode,
     static_cast<uint8_t>(lroundf(commandedAngle)),
     static_cast<uint8_t>(lroundf(targetAngle)), batteryPercent, batteryKind,
     static_cast<uint8_t>(uptimeSeconds), static_cast<uint8_t>(uptimeSeconds >> 8),
     static_cast<uint8_t>(uptimeSeconds >> 16), static_cast<uint8_t>(uptimeSeconds >> 24),
     static_cast<uint8_t>((motion.mode != 0 ? 1 : 0) | (servoAttached ? 2 : 0)),
-    motion.speed, motion.x, motion.y
+    motion.speed, motion.x, motion.y, motion.minimum, motion.maximum, selectedMode
   };
   telemetryCharacteristic->setValue(packet, sizeof(packet));
-  telemetryCharacteristic->notify();  // 16 bytes fits the default 23-byte ATT MTU.
+  telemetryCharacteristic->notify();  // 19 bytes fits the default 23-byte ATT MTU.
 }
 
 class WingServerCallbacks : public NimBLEServerCallbacks {
@@ -326,7 +390,10 @@ static WingCommandCallbacks commandCallbacks;
 
 void setup() {
   Serial.begin(115200);
-  detachServo();  // Safe boot: no PWM until the first valid movement command.
+  detachServo();  // No PWM during the two-second startup wait.
+  pinMode(TOUCH_PIN, INPUT);
+  touchRaw = touchStable = digitalRead(TOUCH_PIN) == HIGH;
+  touchChangedMs = millis();
   NimBLEDevice::init("WingsOnHair");
   NimBLEServer* server = NimBLEDevice::createServer();
   server->setCallbacks(&serverCallbacks);
@@ -334,8 +401,8 @@ void setup() {
   NimBLECharacteristic* command = service->createCharacteristic(COMMAND_UUID, NIMBLE_PROPERTY::WRITE, 6);
   command->setCallbacks(&commandCallbacks);
   telemetryCharacteristic = service->createCharacteristic(
-      TELEMETRY_UUID, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY, 16);
-  const uint8_t initialTelemetry[16] = {0x57, 1, 0, 0, 15, 15, 255, 0, 0, 0, 0, 0, 0, 8, 35, 65};
+      TELEMETRY_UUID, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY, 19);
+  const uint8_t initialTelemetry[19] = {0x57, 2, 0, 0, 15, 15, 255, 0, 0, 0, 0, 0, 0, 8, 35, 65, 15, 85, 1};
   telemetryCharacteristic->setValue(initialTelemetry, sizeof(initialTelemetry));
   service->start();
 
@@ -346,7 +413,8 @@ void setup() {
   advertising->start();
   lastLoopMs = millis();
   lastServoMs = lastLoopMs;
-  Serial.println("Wings On Hair 2.5 ready. Servo is detached.");
+  bootStartedMs = lastLoopMs;
+  Serial.println("Wings On Hair ready. Greeting flap in two seconds.");
 }
 
 void loop() {
@@ -372,10 +440,17 @@ void loop() {
   connected = activeConnection != NO_CONNECTION;
   portEXIT_CRITICAL(&mailboxMux);
 
-  if (disconnected || !connected) {
+  if ((disconnected || !connected) && controlSource == ControlSource::Phone) {
     if (motion.mode != 0) requestPark(now);
+    controlSource = ControlSource::None;
   }
-  if (hasCommand && connected) applyCommand(nextCommand, now);
+  if (hasCommand && connected) {
+    startupFlapPending = false;
+    controlSource = ControlSource::Phone;
+    applyCommand(nextCommand, now);
+  }
+  tickTouch(now);
+  tickStartupFlap(now);
   tickServo(now);
   tickBattery(now);
   sendTelemetry(now, connected);

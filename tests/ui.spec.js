@@ -155,18 +155,67 @@ test('update results stay plain text and failed checks remain retryable', async 
   let fail = false;
   await page.route('https://api.github.com/repos/ParthSancheti/WingsOnHair/**', async route => {
     if (fail) return route.fulfill({ status: 403, json: { message: '<script>window.injected=true</script>' } });
-    if (route.request().url().includes('/releases/latest')) return route.fulfill({ json: { tag_name: 'v2.6.0', name: '<img src=x onerror="window.injected=true">', body: '<script>window.injected=true</script>', html_url: 'https://github.com/ParthSancheti/WingsOnHair/releases/tag/v2.6.0' } });
+    if (route.request().url().includes('/releases/latest')) return route.fulfill({ json: { tag_name: 'v2.7.0', name: '<img src=x onerror="window.injected=true">', body: '<script>window.injected=true</script>', html_url: 'https://github.com/ParthSancheti/WingsOnHair/releases/tag/v2.7.0', assets: [{ name: 'WingsOnHair-v2.7-debug.apk', browser_download_url: 'https://github.com/ParthSancheti/WingsOnHair/releases/download/v2.7.0/WingsOnHair-v2.7-debug.apk' }] } });
     return route.fulfill({ contentType: 'text/plain', body: '<script>window.injected=true</script>' });
   });
   await preview(page); await page.locator('[data-action="about"]').click();
   await page.locator('#update-button').click();
-  await expect(page.locator('#update-result')).toHaveText('v2.6.0 is available.');
-  await expect(page.locator('#update-link a')).toHaveAttribute('href', 'https://github.com/ParthSancheti/WingsOnHair/releases/tag/v2.6.0');
+  await expect(page.locator('#update-result')).toHaveText('v2.7.0 is available.');
+  await expect(page.locator('#update-link a')).toHaveAttribute('href', 'https://github.com/ParthSancheti/WingsOnHair/releases/download/v2.7.0/WingsOnHair-v2.7-debug.apk');
   expect(await page.evaluate(() => window.injected)).toBeUndefined();
   await expect(page.locator('.about-sheet script, .about-sheet img')).toHaveCount(0);
   fail = true; await page.locator('#update-button').click();
   await expect(page.locator('#update-result')).toContainText('GitHub rate limit reached.');
   await expect(page.locator('#update-button')).toBeEnabled();
+});
+
+test('new GitHub release alerts automatically with a direct APK link', async ({ page }) => {
+  await page.route('https://api.github.com/repos/ParthSancheti/WingsOnHair/releases/latest', route => route.fulfill({ json: {
+    tag_name: 'v2.7.0', html_url: 'https://github.com/ParthSancheti/WingsOnHair/releases/tag/v2.7.0',
+    assets: [{ name: 'WingsOnHair-v2.7-debug.apk', browser_download_url: 'https://github.com/ParthSancheti/WingsOnHair/releases/download/v2.7.0/WingsOnHair-v2.7-debug.apk' }],
+  } }));
+  await page.goto('/');
+  await expect(page.locator('#update-banner')).toBeVisible();
+  await expect(page.locator('#update-banner a')).toHaveAttribute('href', 'https://github.com/ParthSancheti/WingsOnHair/releases/download/v2.7.0/WingsOnHair-v2.7-debug.apk');
+  await page.locator('[data-action="dismiss-update"]').click();
+  await expect(page.locator('#update-banner')).toBeHidden();
+  await page.reload();
+  await expect(page.locator('#update-banner')).toBeHidden();
+});
+
+test('physical touch telemetry updates modes, pause, battery and reconnect without stale phone commands', async ({ page }) => {
+  await page.route('**/src/services/ble.js', route => route.fulfill({ contentType: 'application/javascript', body: `
+    export class WingConnection extends EventTarget {
+      constructor() { super(); window.testWings = this; this.commands = []; }
+      emit(name, detail) { this.dispatchEvent(new CustomEvent(name, { detail })); }
+      async send(value) { this.commands.push(value); }
+      async dispose() {}
+    }
+  ` }));
+  await page.addInitScript(() => localStorage.setItem('woh.onboarded', 'true'));
+  await page.goto('/');
+  const report = async patch => page.evaluate(patch => {
+    window.testWings.emit('state', { status: 'connected', stability: 'live' });
+    window.testWings.emit('telemetry', { mode: 4, selectedMode: 4, minAngle: 35, maxAngle: 90,
+      speed: .4, impulseX: 65, impulseY: 15, running: true, angle: 45, targetAngle: 45,
+      batteryPercent: 82, batteryKind: 'estimated', receivedAt: Date.now(), ...patch });
+  }, patch);
+  await report({});
+  await expect(page.locator('[data-mode="4"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#play-button')).toHaveText('Pause wings');
+  await expect(page.locator('#pace-value')).toHaveText('0.4 Hz');
+  await expect(page.locator('#battery-estimate')).toContainText('≈82%');
+  await report({ mode: 0, running: false });
+  await expect(page.locator('#current-mood')).toHaveText('Paused');
+  await expect(page.locator('#play-button')).toHaveText('Start wings');
+  await page.evaluate(() => window.testWings.emit('state', { status: 'disconnected' }));
+  await expect(page.locator('#battery-estimate')).toBeHidden();
+  await report({ mode: 0, running: false });
+  await page.locator('#play-button').click();
+  // An old paused report arriving before the command is acknowledged must not undo the tap.
+  await report({ mode: 0, running: false });
+  await expect(page.locator('#play-button')).toHaveText('Pause wings');
+  expect(await page.evaluate(() => window.testWings.commands.at(-1))).toMatchObject({ mode: 4, minAngle: 35, maxAngle: 90, speed: .4 });
 });
 
 for (const viewport of [{ width: 320, height: 568 }, { width: 844, height: 390 }]) {

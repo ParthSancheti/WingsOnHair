@@ -1,6 +1,6 @@
 # Android build and device guide
 
-Wings On Hair uses Capacitor 8, a Vite web bundle, Android API 36, and native Bluetooth LE, App, Haptics, and Status Bar support. The refreshed interface is one screen with four modes, Start/Pause, a speed sheet, and local long-press previews. The app ID is `com.parthsancheti.wingsonhair`; Android version name is `2.5.0` and version code is `250`.
+Wings On Hair uses Capacitor 8, a Vite web bundle, Android API 36, and native Bluetooth LE, App, Haptics, and Status Bar support. The refreshed interface is one screen with four modes, Start/Pause, a speed sheet, and local long-press previews. The app ID is `com.parthsancheti.wingsonhair`; Android version name is `2.6.0` and version code is `260`.
 
 ## Prerequisites
 
@@ -101,4 +101,4 @@ Holding a mode opens a local animated preview over a blurred background. The cur
 
 ## Updates
 
-The small About sheet compares public GitHub releases with version 2.5 and links to the project/hardware guide. It does not contain the previous activity feed or embedded documentation dashboard. Release links open externally; the app does not silently install APKs. Firmware is flashed over USB. A secure BLE firmware update protocol, signed image verification, rollback partitions, and app-store update distribution are separate release-engineering work; they are not implied by a GitHub API check.
+The small About sheet compares public GitHub releases with version 2.6 and links to the project/hardware guide. The app checks on open or resume (at most once per 30 minutes in a session) and shows an in-app alert for a newer release. If that release includes an APK asset, the alert links directly to its download; otherwise it opens the release page. Dismissing one version does not hide later versions. Release links open externally; the app does not silently install APKs. Firmware is flashed over USB. A secure BLE firmware update protocol, signed image verification, rollback partitions, and app-store update distribution are separate release-engineering work; they are not implied by a GitHub API check.

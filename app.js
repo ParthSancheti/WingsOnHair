@@ -4,8 +4,10 @@ import { App } from '@capacitor/app';
 import { Haptics, ImpactStyle, NotificationType } from '@capacitor/haptics';
 import { StatusBar } from '@capacitor/status-bar';
 import { WingConnection } from './src/services/ble.js';
+import { reconcileWingTelemetry } from './src/services/live-state.js';
 import { DEFAULT_SETTINGS, PRESETS, sampleWingAngle, validateSettings } from './src/services/protocol.js';
 import { checkForUpdates } from './src/services/updates.js';
+import { version as APP_VERSION } from './package.json';
 import { installPressFeedback } from './src/interactions.js';
 import { butterfly, logo, icon, escapeHtml } from './src/ui.js';
 
@@ -25,6 +27,7 @@ const state = {
   theme: storage.get('theme') === 'dark' ? 'dark' : 'light', welcome: storage.get('onboarded') !== true,
   settings: { ...DEFAULT_SETTINGS }, running: false, connection: { status: 'disconnected', stability: 'offline' },
   telemetry: null, sheet: null, previewMode: null, commandPending: false, welcomeStep: 0,
+  availableUpdate: null,
   name: typeof storage.get('name') === 'string' ? storage.get('name').slice(0, 30) : '',
 };
 try { const saved = storage.get('simple.settings'); if (saved && moods.some(m => m.mode === saved.mode)) state.settings = validateSettings(saved); } catch { /* Use Calm for incompatible preferences. */ }
@@ -32,10 +35,11 @@ const connection = new WingConnection();
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 let animationFrame, angle = 32, lastFrame = 0, sendTimer, sendGeneration = 0, commandGraceUntil = 0;
 let toastTimer, sheetGeneration = 0, lastFocus, connectionBusy = false, lastHaptic = 0, localFlutterUntil = 0, launchTimer;
+let lastAutomaticUpdateCheck = 0;
+let automaticUpdateCheckPending = false;
 const nativeListeners = [];
 const ready = () => ['connected', 'demo'].includes(state.connection.status);
 const demo = () => state.connection.status === 'demo';
-const mood = () => moods.find(m => m.mode === state.settings.mode) || moods[0];
 
 function haptic(kind = 'light') {
   if (Date.now() - lastHaptic < 65) return;
@@ -48,14 +52,14 @@ function toast(message) {
   toastTimer = setTimeout(() => $('#toast').classList.remove('visible'), 2800);
 }
 function render() {
-  $('#app').innerHTML = `<div class="app-shell"><header class="floating-bar press-surface"><button class="brand pressable" data-action="about" data-press aria-label="About Wings On Hair"><span class="brand-icon">${logo()}</span><span>Wings On Hair</span></button><div class="bar-actions"><button class="icon-button bluetooth-button pressable" data-action="pair" data-press aria-label="Connect wings">${icon('bluetooth')}<i id="header-dot"></i></button><button class="icon-button theme-toggle pressable" data-action="theme" data-press aria-label="Switch theme">${icon('moon')}</button></div></header><div id="view"></div></div><div id="sheet-root"></div>`;
+  $('#app').innerHTML = `<div class="app-shell"><header class="floating-bar press-surface"><button class="brand pressable" data-action="about" data-press aria-label="About Wings On Hair"><span class="brand-icon">${logo()}</span><span>Wings On Hair</span></button><div class="bar-actions"><button class="icon-button bluetooth-button pressable" data-action="pair" data-press aria-label="Connect wings">${icon('bluetooth')}<i id="header-dot"></i></button><button class="icon-button theme-toggle pressable" data-action="theme" data-press aria-label="Switch theme">${icon('moon')}</button></div></header><div id="view"></div></div><div id="sheet-root"></div><aside id="update-banner" class="update-banner glass" role="status" hidden></aside>`;
   renderView(); applyTheme();
 }
 function renderView() {
   $('#view').innerHTML = state.welcome ? state.welcomeStep === 1 ? nameMarkup() : `<main class="welcome press-surface" aria-labelledby="welcome-title"><div class="welcome-art">${butterfly('welcome')}</div><div class="welcome-copy"><span class="section-kicker">A LITTLE EVERYDAY MAGIC</span><h1 id="welcome-title">Meet your wings.</h1><p>Pick a mood. Let them move.</p></div><div class="welcome-actions"><button class="primary-button pressable" data-action="begin" data-press>Get started ${icon('arrow')}</button><button class="text-button pressable" data-action="demo" data-press>Just looking? Try preview</button></div><span class="welcome-note">Wings On Hair · Made to move with you</span></main>` : `<main class="home press-surface" aria-label="Wing controls">
     <div class="playback-row"><button class="connection-status pressable" id="connection-status" data-action="pair" data-press><i></i><span>Not connected</span>${icon('chevron')}</button><button id="play-button" class="primary-button pressable" data-action="play" data-press>${icon('play')}<span>Start wings</span></button></div>
     <div class="hero-region"><div class="wing-glow" aria-hidden="true"></div><button class="butterfly-button pressable" data-action="flutter" data-press aria-label="Make the butterfly flutter">${butterfly('home')}</button></div>
-    <div class="butterfly-caption"><h1>Wings On Hair</h1><p>${state.name ? `A little magic for ${escapeHtml(state.name)}.` : 'A little movement. Entirely yours.'}</p></div>
+    <div class="butterfly-caption"><h1>Wings On Hair</h1><p>${state.name ? `A little magic for ${escapeHtml(state.name)}.` : 'A little movement. Entirely yours.'}</p><span id="battery-estimate" class="battery-estimate" hidden></span></div>
     <section class="controls" aria-label="Choose a mode"><div class="controls-heading"><span>Find your rhythm</span><span class="current-mood" aria-live="polite"><i></i><span id="current-mood">Calm</span></span></div><div class="modes" role="group" aria-label="Wing modes">${moods.map(m => `<button class="mode-button glass pressable" data-mode="${m.mode}" data-press aria-pressed="${m.mode === state.settings.mode}" aria-label="${m.name} mode"><span class="mode-card-top"><span class="mode-icon">${icon(m.icon)}</span><span class="mode-check">${icon('check')}</span></span><span class="mode-name">${m.name}</span><span class="mode-description">${m.description}</span></button>`).join('')}</div>
     <button class="pace-row glass pressable" data-action="speed" data-press aria-label="Adjust speed"><span class="pace-icon">${icon('sliders')}</span><span>Your pace</span><span id="pace-value">0.6 Hz</span>${icon('chevron')}</button></section><p class="hold-hint">Tap the butterfly to flutter · Hold a mood to preview</p></main>`;
   if (state.welcome && state.welcomeStep === 1) $('#name-form').addEventListener('submit', event => {
@@ -83,16 +87,35 @@ function applyTheme() {
 }
 function updateUI() {
   const status = state.connection.status, busy = ['scanning', 'connecting'].includes(status), live = status === 'connected';
+  const awaitingCommand = state.commandPending || Date.now() < commandGraceUntil;
+  const reportedMode = live && state.telemetry && !awaitingCommand ? state.telemetry.mode : state.running ? state.settings.mode : 0;
+  const reportedMood = moods.find(item => item.mode === reportedMode);
   $('#header-dot')?.classList.toggle('live', live);
   $('.bluetooth-button')?.setAttribute('aria-label', live ? 'Manage connection' : 'Connect wings');
   if ($('#connection-status')) {
     $('#connection-status span').textContent = live ? state.connection.stability === 'delayed' ? 'Connection delayed' : 'Wings connected' : demo() ? 'Preview · no device' : busy ? 'Connecting…' : 'Not connected';
     $('#connection-status').classList.toggle('connected', live); $('#connection-status').classList.toggle('preview', demo());
-    $('#current-mood').textContent = mood().name; $('#pace-value').textContent = `${state.settings.speed.toFixed(1)} Hz`;
-    $$('.mode-button').forEach(button => button.setAttribute('aria-pressed', String(+button.dataset.mode === state.settings.mode)));
+    $('#current-mood').textContent = reportedMode === 0 ? 'Paused' : reportedMode === 6 ? 'Flutter' : reportedMood?.name || 'Custom';
+    $('#pace-value').textContent = `${state.settings.speed.toFixed(1)} Hz`;
+    $$('.mode-button').forEach(button => button.setAttribute('aria-pressed', String(+button.dataset.mode === reportedMode)));
     $('#play-button').innerHTML = `${icon(state.running ? 'pause' : 'play')}<span>${state.running ? 'Pause wings' : 'Start wings'}</span>`;
     $('#play-button').setAttribute('aria-label', state.running ? 'Pause wings' : 'Start wings');
     $('.home').classList.toggle('is-moving', state.running);
+    if ($('#speed-slider') && document.activeElement !== $('#speed-slider') && !awaitingCommand) {
+      $('#speed-slider').value = state.settings.speed;
+      $('#speed-value').textContent = `${state.settings.speed.toFixed(1)} Hz`;
+      $('#speed-slider').style.setProperty('--progress', `${(state.settings.speed - .2) / 2.8 * 100}%`);
+    }
+  }
+  const battery = $('#battery-estimate');
+  if (battery) {
+    const kind = live ? state.telemetry?.batteryKind : null;
+    const percent = live ? state.telemetry?.batteryPercent : null;
+    battery.hidden = percent == null;
+    if (percent != null) {
+      battery.textContent = kind === 'estimated' ? `≈${percent}% runtime left · estimate` : `${percent}% battery`;
+      battery.title = kind === 'estimated' ? 'Assumes a full 150 mAh battery at power-on; current draw is estimated, not measured.' : 'Reported by the accessory.';
+    }
   }
   if ($('#pair-status')) {
     $('#pair-status').textContent = live ? 'You’re connected.' : busy ? status === 'connecting' ? 'Pairing…' : 'Finding your wings…' : state.connection.bluetoothEnabled === false ? 'Bluetooth is off.' : 'Bring your wings close.';
@@ -109,8 +132,8 @@ async function sendSettings(debounce = false) {
   const send = async () => {
     if (generation !== sendGeneration) return;
     if (!ready()) { state.commandPending = false; return; }
-    try { await connection.send(packet); commandGraceUntil = Date.now() + 450; }
-    catch (error) { state.running = false; updateUI(); toast(error.message); }
+    try { await connection.send(packet); if (generation === sendGeneration) commandGraceUntil = Date.now() + 450; }
+    catch (error) { if (generation === sendGeneration) { state.running = false; updateUI(); toast(error.message); } }
     finally { if (generation === sendGeneration) state.commandPending = false; }
   };
   if (debounce) sendTimer = setTimeout(send, 85); else await send();
@@ -160,7 +183,7 @@ function modeMarkup(mode) {
   return `<div class="mode-preview-art">${butterfly('mode')}</div><h2 id="sheet-title">${item.name}</h2><p class="sheet-copy">${item.description}</p><span class="preview-label">Motion preview</span><button class="primary-button pressable" data-action="use-mode" data-use-mode="${item.mode}" data-press>Use ${item.name} ${icon('check')}</button>`;
 }
 function aboutMarkup() {
-  return `<span class="about-logo">${logo()}</span><h2 id="sheet-title">Wings On Hair</h2><p class="sheet-copy">Version 2.5 · Made by <a href="https://github.com/ParthSancheti" target="_blank" rel="noopener noreferrer">Parth Sancheti</a></p><div class="settings-rows"><button class="settings-row pressable" data-action="updates" id="update-button" data-press>${icon('refresh')}<span>Check for updates</span>${icon('chevron')}</button><button class="settings-row pressable" data-action="replay" data-press>${icon('reset')}<span>Replay welcome</span>${icon('chevron')}</button><a class="settings-row" href="https://github.com/ParthSancheti/WingsOnHair" target="_blank" rel="noopener noreferrer">${icon('github')}<span>Project & hardware guide</span>${icon('external')}</a></div><p class="update-result" id="update-result" role="status"></p><div id="update-link"></div><p class="about-note">${state.telemetry?.batteryPercent != null ? `Battery: ${state.telemetry.batteryPercent}%${state.telemetry.batteryKind === 'estimated' ? ' · runtime estimate' : ''}. ` : ''}Your settings stay on this device.</p>`;
+  return `<span class="about-logo">${logo()}</span><h2 id="sheet-title">Wings On Hair</h2><p class="sheet-copy">Version ${APP_VERSION} · Made by <a href="https://github.com/ParthSancheti" target="_blank" rel="noopener noreferrer">Parth Sancheti</a></p><div class="settings-rows"><button class="settings-row pressable" data-action="updates" id="update-button" data-press>${icon('refresh')}<span>Check for updates</span>${icon('chevron')}</button><button class="settings-row pressable" data-action="replay" data-press>${icon('reset')}<span>Replay welcome</span>${icon('chevron')}</button><a class="settings-row" href="https://github.com/ParthSancheti/WingsOnHair" target="_blank" rel="noopener noreferrer">${icon('github')}<span>Project & hardware guide</span>${icon('external')}</a></div><p class="update-result" id="update-result" role="status"></p><div id="update-link"></div><p class="about-note">${state.telemetry?.batteryPercent != null ? `${state.telemetry.batteryKind === 'estimated' ? 'Estimated runtime left' : 'Battery'}: ${state.telemetry.batteryPercent}%. ` : ''}The runtime estimate assumes a full 150 mAh cell at power-on and is not a charge measurement.</p>`;
 }
 function finishWelcome() { state.welcome = false; storage.set('onboarded', true); renderView(); haptic('success'); }
 async function startDemo() {
@@ -185,12 +208,40 @@ async function connect() {
 async function checkUpdates() {
   const button = $('#update-button'); if (button.disabled) return;
   button.disabled = true; $('#update-result').textContent = 'Checking GitHub…';
+  $('#update-link').replaceChildren();
   try {
-    const result = await checkForUpdates('2.5.0'); if (!$('#update-result')) return;
+    const result = await checkForUpdates(APP_VERSION, { releaseOnly: true }); if (!$('#update-result')) return;
     $('#update-result').textContent = result.updateAvailable ? `${result.latestVersion} is available.` : result.latestVersion ? 'You’re up to date.' : result.errors.release || 'No new release yet.';
-    if (result.release?.url) $('#update-link').innerHTML = `<a class="text-link" href="${escapeHtml(result.release.url)}" target="_blank" rel="noopener noreferrer">View release ${icon('external')}</a>`;
+    const target = result.updateAvailable ? result.release?.apkUrl || result.release?.url : result.release?.url;
+    if (target) $('#update-link').innerHTML = `<a class="text-link" href="${escapeHtml(target)}" target="_blank" rel="noopener noreferrer">${result.updateAvailable && result.release?.apkUrl ? 'Download APK' : 'View release'} ${icon('external')}</a>`;
   } catch (error) { if ($('#update-result')) $('#update-result').textContent = error.message; }
   finally { if ($('#update-button')) $('#update-button').disabled = false; }
+}
+
+function showUpdateBanner() {
+  const banner = $('#update-banner');
+  const update = state.availableUpdate;
+  if (!banner) return;
+  banner.hidden = !update;
+  if (!update) { banner.replaceChildren(); return; }
+  banner.innerHTML = `<span>Wings On Hair ${escapeHtml(update.version)} is ready.</span><a href="${escapeHtml(update.url)}" target="_blank" rel="noopener noreferrer">${update.isApk ? 'Download APK' : 'View release'}</a><button type="button" data-action="dismiss-update" aria-label="Dismiss update alert">${icon('close')}</button>`;
+}
+
+async function checkUpdatesAutomatically() {
+  if (automaticUpdateCheckPending || Date.now() - lastAutomaticUpdateCheck < 30 * 60 * 1000) return;
+  automaticUpdateCheckPending = true;
+  try {
+    const result = await checkForUpdates(APP_VERSION, { releaseOnly: true });
+    if (!result.errors.release) lastAutomaticUpdateCheck = Date.now();
+    if (!result.updateAvailable || !result.release || storage.get('dismissed-update') === result.latestVersion) return;
+    state.availableUpdate = {
+      version: result.latestVersion,
+      url: result.release.apkUrl || result.release.url,
+      isApk: Boolean(result.release.apkUrl),
+    };
+    showUpdateBanner();
+  } catch { /* A failed background check must not interrupt the app. */ }
+  finally { automaticUpdateCheckPending = false; }
 }
 
 const disposePress = installPressFeedback({ onHaptic: haptic, onLongPress(button) {
@@ -203,6 +254,7 @@ document.addEventListener('click', async event => {
   try {
     if (button.dataset.mode) { await chooseMode(+button.dataset.mode); return; }
     switch (button.dataset.action) {
+      case 'dismiss-update': storage.set('dismissed-update', state.availableUpdate?.version); state.availableUpdate = null; showUpdateBanner(); break;
       case 'theme': state.theme = state.theme === 'light' ? 'dark' : 'light'; applyTheme(); break;
       case 'about': openSheet('about'); break;
       case 'pair': openSheet('pair'); break;
@@ -233,12 +285,21 @@ document.addEventListener('keydown', event => {
 });
 connection.addEventListener('state', event => {
   const previous = state.connection.status; state.connection = event.detail;
-  if (!ready()) { state.running = false; state.telemetry = null; } updateUI();
+  if (!ready()) { clearTimeout(sendTimer); ++sendGeneration; state.commandPending = false; commandGraceUntil = 0; state.running = false; state.telemetry = null; } updateUI();
   if (previous === 'connected' && event.detail.status === 'disconnected') toast('Wings disconnected. Tap to reconnect.');
 });
 connection.addEventListener('telemetry', event => {
   state.telemetry = event.detail;
-  if (event.detail.mode !== 6 && !state.commandPending && Date.now() > commandGraceUntil) state.running = event.detail.running;
+  if (!state.commandPending && Date.now() > commandGraceUntil) {
+    state.running = event.detail.running;
+    if (state.connection.status === 'connected') {
+      const next = reconcileWingTelemetry(state.settings, event.detail);
+      if (next.settings !== state.settings) {
+        state.settings = next.settings;
+        storage.set('simple.settings', state.settings);
+      }
+    }
+  }
   updateUI();
 });
 function animate(now) {
@@ -257,8 +318,8 @@ function animate(now) {
   }
   animationFrame = requestAnimationFrame(animate);
 }
-async function suspend() { clearTimeout(sendTimer); ++sendGeneration; if (ready()) { state.running = false; updateUI(); await sendSettings(); } cancelAnimationFrame(animationFrame); }
-function resume() { cancelAnimationFrame(animationFrame); animationFrame = requestAnimationFrame(animate); }
+async function suspend() { clearTimeout(sendTimer); ++sendGeneration; state.commandPending = false; cancelAnimationFrame(animationFrame); if (ready()) { state.running = false; updateUI(); await sendSettings(); } }
+function resume() { cancelAnimationFrame(animationFrame); animationFrame = requestAnimationFrame(animate); void checkUpdatesAutomatically(); }
 document.addEventListener('visibilitychange', () => { if (document.hidden) void suspend(); else resume(); });
 async function initializeNative() {
   if (!Capacitor.isNativePlatform()) return;

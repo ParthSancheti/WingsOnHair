@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DEFAULT_SETTINGS, PRESETS, decodeTelemetry, encodeCommand, impulseEase, sampleWingAngle } from '../src/services/protocol.js';
 import { checkForUpdates, compareVersions } from '../src/services/updates.js';
+import { reconcileWingTelemetry } from '../src/services/live-state.js';
 import { WingConnection } from '../src/services/ble.js';
 
 const packet = (overrides = {}) => {
@@ -41,6 +42,18 @@ test('telemetry decodes unsigned uptime, reported angles, and battery provenance
   assert.equal(decodeTelemetry(packet({ 6: 71, 7: 0 })).batteryPercent, null);
 });
 
+test('touch-selected mode and pause reconcile with the phone controls', () => {
+  const pulse = reconcileWingTelemetry(DEFAULT_SETTINGS, decodeTelemetry(packet({ 3: 2, 13: 8, 14: 20, 15: 80 })));
+  assert.equal(pulse.mode, 2);
+  assert.equal(pulse.settings.mode, 2);
+  assert.equal(pulse.running, true);
+  assert.equal(reconcileWingTelemetry(pulse.settings, decodeTelemetry(packet({ 3: 2, 13: 8, 14: 20, 15: 80 }))).settings, pulse.settings);
+  const paused = reconcileWingTelemetry(pulse.settings, decodeTelemetry(packet({ 3: 0, 12: 2 })));
+  assert.equal(paused.mode, 0);
+  assert.equal(paused.running, false);
+  assert.equal(paused.settings.mode, 2); // Start again with the last selected mood.
+});
+
 test('telemetry respects buffer offsets and rejects incompatible or corrupt packets', () => {
   const outer = new Uint8Array(40);
   outer.set(new Uint8Array(packet().buffer), 5);
@@ -48,6 +61,28 @@ test('telemetry respects buffer offsets and rejects incompatible or corrupt pack
   for (const invalid of [new Uint8Array(15), packet({ 0: 0 }), packet({ 1: 2 }), packet({ 4: 255 }), packet({ 6: 200 }), packet({ 7: 9 }), packet({ 13: 0 })]) {
     assert.throws(() => decodeTelemetry(invalid));
   }
+});
+
+test('v2 telemetry restores a paused mode and exact range after reconnect, retaining v1 support', () => {
+  const bytes = new Uint8Array(19);
+  bytes.set(new Uint8Array(packet({ 3: 0, 12: 0, 13: 4, 14: 65, 15: 15 }).buffer));
+  bytes[1] = 2; bytes.set([35, 90, 4], 16);
+  const report = decodeTelemetry(bytes);
+  const paused = reconcileWingTelemetry(DEFAULT_SETTINGS, report);
+  assert.equal(paused.running, false);
+  assert.equal(paused.settings.mode, 4);
+  assert.equal(paused.settings.minAngle, 35);
+  assert.equal(paused.settings.maxAngle, 90);
+  assert.equal(paused.settings.speed, .4);
+  bytes[3] = 5; bytes[18] = 5; bytes[16] = 42; bytes[17] = 76;
+  const custom = reconcileWingTelemetry(DEFAULT_SETTINGS, decodeTelemetry(bytes));
+  assert.equal(custom.settings.mode, 5);
+  assert.equal(custom.settings.minAngle, 42);
+  bytes[17] = 41;
+  assert.throws(() => decodeTelemetry(bytes), /angle range/);
+  bytes[17] = 76; bytes[18] = 6;
+  assert.throws(() => decodeTelemetry(bytes), /Selected mode/);
+  assert.equal(decodeTelemetry(packet()).mode, 1);
 });
 
 test('impulse easing stays monotone and within endpoints across the full editable range', () => {
@@ -117,6 +152,22 @@ test('GitHub release and rate-limit states are explicit', async () => {
   assert.equal(result.updateAvailable, true);
   assert.equal(result.latestVersion, 'v2.6.0');
   assert.match(result.errors.documentation, /rate limit/);
+});
+
+test('release-only update check chooses a direct APK asset', async () => {
+  const calls = [];
+  const fetcher = async url => {
+    calls.push(url);
+    return Response.json({
+      tag_name: 'v2.7.0',
+      html_url: 'https://github.com/ParthSancheti/WingsOnHair/releases/tag/v2.7.0',
+      assets: [{ name: 'WingsOnHair-v2.7-debug.apk', browser_download_url: 'https://github.com/ParthSancheti/WingsOnHair/releases/download/v2.7.0/WingsOnHair-v2.7-debug.apk' }],
+    });
+  };
+  const result = await checkForUpdates('2.6.0', { fetcher, releaseOnly: true });
+  assert.equal(calls.length, 1);
+  assert.equal(result.updateAvailable, true);
+  assert.match(result.release.apkUrl, /\.apk$/);
 });
 
 test('an empty GitHub repository has a clear commits message', async () => {

@@ -71,13 +71,16 @@ async function request(path, { raw = false, fetcher = fetch, signal } = {}) {
 }
 
 /** Remote README/release/commit strings are plain text. Render with textContent. */
-export async function checkForUpdates(currentVersion = '2.5.0', { fetcher = fetch, signal } = {}) {
+export async function checkForUpdates(currentVersion = '2.6.0', { fetcher = fetch, signal, releaseOnly = false } = {}) {
   parseVersion(currentVersion);
-  const results = await Promise.allSettled([
+  const requests = [
     request('/releases/latest', { fetcher, signal }),
+  ];
+  if (!releaseOnly) requests.push(
     request('/commits?per_page=5', { fetcher, signal }),
     request('/readme', { raw: true, fetcher, signal }),
-  ]);
+  );
+  const results = await Promise.allSettled(requests);
   const result = { currentVersion, latestVersion: null, updateAvailable: false, release: null, commits: [], documentation: null, checkedAt: Date.now(), errors: {} };
   const [releaseResult, commitsResult, docsResult] = results;
   if (releaseResult.status === 'fulfilled') {
@@ -90,20 +93,21 @@ export async function checkForUpdates(currentVersion = '2.5.0', { fetcher = fetc
       url: githubUrl(data.html_url, `${REPOSITORY_URL}/releases`),
       assets: (Array.isArray(data.assets) ? data.assets : []).filter(asset => asset && typeof asset === 'object').map(asset => ({ name: String(asset.name || 'Download'), size: Number(asset.size) || 0, url: githubUrl(asset.browser_download_url, `${REPOSITORY_URL}/releases`) })),
     };
+    result.release.apkUrl = result.release.assets.find(asset => /\.apk$/i.test(asset.name) && asset.url.startsWith(`${REPOSITORY_URL}/releases/download/`))?.url ?? null;
     try {
       result.updateAvailable = compareVersions(result.release.version, currentVersion) > 0;
       result.latestVersion = result.release.version;
     } catch { result.errors.release = 'A release exists, but its tag is not a supported version number.'; }
   } else result.errors.release = releaseResult.reason.message;
-  if (commitsResult.status === 'fulfilled') {
+  if (!releaseOnly && commitsResult.status === 'fulfilled') {
     result.commits = (Array.isArray(commitsResult.value) ? commitsResult.value : []).filter(item => item && typeof item === 'object').map(item => ({
       sha: String(item.sha || ''), message: String(item.commit?.message || ''),
       date: item.commit?.author?.date ?? null,
       url: githubUrl(item.html_url),
       author: String(item.commit?.author?.name || 'Contributor'),
     }));
-  } else result.errors.commits = commitsResult.reason.message;
-  if (docsResult.status === 'fulfilled') result.documentation = String(docsResult.value).slice(0, 200000);
-  else result.errors.documentation = docsResult.reason.message;
+  } else if (!releaseOnly) result.errors.commits = commitsResult.reason.message;
+  if (!releaseOnly && docsResult.status === 'fulfilled') result.documentation = String(docsResult.value).slice(0, 200000);
+  else if (!releaseOnly) result.errors.documentation = docsResult.reason.message;
   return result;
 }
