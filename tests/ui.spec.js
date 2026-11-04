@@ -355,6 +355,10 @@ test('fluid theme uses distinct blends, slow motion and rounded top controls', a
   const matrix = await orb.evaluate(el => getComputedStyle(el).transform);
   await expect.poll(() => orb.evaluate(el => getComputedStyle(el).transform)).not.toBe(matrix);
   expect(await page.locator('.aurora').evaluate(el => getComputedStyle(el).backgroundColor)).toBe('rgb(240, 244, 248)');
+  // Measure settled content, while the infinite background animation keeps running.
+  await page.locator('.home').evaluate(el => Promise.all(el.getAnimations({ subtree: true })
+    .filter(animation => Number.isFinite(animation.effect.getTiming().iterations))
+    .map(animation => animation.finished.catch(() => {}))));
   const header = await page.locator('.floating-bar').boundingBox();
   expect(header.y).toBeGreaterThanOrEqual(24);
   expect(await page.locator('.brand-icon').evaluate(el => getComputedStyle(el).borderRadius)).toBe('50%');
