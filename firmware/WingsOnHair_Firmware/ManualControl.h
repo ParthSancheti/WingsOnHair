@@ -21,7 +21,7 @@ static void stop() {
 }
 static void status() { console.printf("SAFEUSB 1 %s REST %.0f COMMAND %.1f TARGET %.0f\n", armed ? "ON" : "OFF", rest, angle, target); }
 static void writeAngle() {
-  angle = fmaxf(rest, fminf(110.0f, angle));
+  angle = fmaxf(rest, fminf(130.0f, angle));
   const float pulse = 600 + 1800 * angle / 180;
   ledcWrite(4, static_cast<uint32_t>(lroundf(pulse * ((1UL << 14) - 1) / 20000)));
 }
@@ -37,7 +37,7 @@ static void command() {
     char* second = nullptr; const long first = strtol(line + 5, &second, 10);
     if (second == line + 5 || *second != ' ') { console.println("ERROR Invalid range"); return; }
     char* tail = nullptr; const long last = strtol(second + 1, &tail, 10);
-    if (tail == second + 1 || *tail || first < 15 || last > 110 || first >= last) { console.println("ERROR Invalid range"); return; }
+    if (tail == second + 1 || *tail || first < 15 || last > 130 || first >= last) { console.println("ERROR Invalid range"); return; }
     stop();
     if (device::saveLimits(first, last)) console.printf("SAVED %ld %ld\n", first, last);
     else console.println("ERROR Save failed");
@@ -46,7 +46,7 @@ static void command() {
   if (!arm && !move && !flap) { console.println("ERROR Unknown command"); return; }
   const char* value = line + (flap ? 5 : 4); char* tail = nullptr;
   const long degrees = strtol(value, &tail, 10);
-  if (tail == value || *tail || degrees < 15 || degrees > 110) { console.println("ERROR Angle must be 15-110"); return; }
+  if (tail == value || *tail || degrees < 15 || degrees > 130) { console.println("ERROR Angle must be 15-130"); return; }
   if (arm) {
     if (armed) { console.println("ERROR STOP before changing start"); return; }
     if (pauseMotion) pauseMotion();

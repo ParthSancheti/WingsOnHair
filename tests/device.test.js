@@ -15,11 +15,13 @@ function fixture() {
   return { manifest, image };
 }
 test('saved travel validates boundaries, byte offsets and firmware capabilities', () => {
-  for (const pair of [[14, 40], [25, 111], [50, 50], [60, 45], [25.5, 45]]) assert.throws(() => validateTravel(...pair));
+  for (const pair of [[14, 40], [25, 131], [50, 50], [60, 45], [25.5, 45]]) assert.throws(() => validateTravel(...pair));
   assert.deepEqual([...new Uint8Array(encodeTravel(25, 45, 513).buffer)], [0x4c, 1, 25, 45, 1, 2]);
   const bytes = new Uint8Array(20); bytes.set([0x4c, 1, 1, 25, 45, 0, 1, 2], 3);
   new DataView(bytes.buffer).setUint32(11, 20700, true); bytes[15] = 1;
   assert.deepEqual(decodeDeviceSettings(new DataView(bytes.buffer, 3, 14)), { configured: true, start: 25, end: 45, error: 0, token: 513, versionCode: 20700, ota: true });
+  assert.deepEqual(validateTravel(45, 113), { start: 45, end: 113 });
+  assert.deepEqual(validateTravel(45, 130), { start: 45, end: 130 });
 });
 test('signed firmware rejects wrong keys, changed metadata, corrupt bytes and wrong-chip images', async () => {
   const { manifest, image } = fixture();
@@ -74,9 +76,9 @@ test('saving limits waits for the accessory acknowledgement and survives a new c
   const client = clientFixture(); let connection = connectionFor(client);
   try {
     await connection.connect();
-    const saved = await connection.saveTravel(25, 42); assert.equal(saved.end, 42);
+    const saved = await connection.saveTravel(45, 113); assert.equal(saved.end, 113);
     await connection.dispose(); connection = connectionFor(client);
-    await connection.connect(); assert.equal(connection.deviceSettings.end, 42);
+    await connection.connect(); assert.equal(connection.deviceSettings.start, 45); assert.equal(connection.deviceSettings.end, 113);
   } finally { await connection.dispose(); }
 });
 test('OTA transfers the signed stream in acknowledged MTU-sized chunks then commits', async () => {

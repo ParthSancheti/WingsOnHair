@@ -6,7 +6,7 @@
 #include "ota_public_key.h"
 
 namespace device {
-constexpr uint32_t VERSION_CODE = 20700; // major * 10000 + minor * 100 + patch.
+constexpr uint32_t VERSION_CODE = 20701; // major * 10000 + minor * 100 + patch.
 constexpr char SETTINGS_UUID[] = "7a1b0004-6e3d-4b7a-9c21-8f5d0a2e6c10";
 constexpr char OTA_CONTROL_UUID[] = "7a1b0005-6e3d-4b7a-9c21-8f5d0a2e6c10";
 constexpr char OTA_DATA_UUID[] = "7a1b0006-6e3d-4b7a-9c21-8f5d0a2e6c10";
@@ -41,7 +41,7 @@ static uint32_t read32(const uint8_t* bytes) {
 static void write32(uint8_t* bytes, uint32_t value) {
   for (uint8_t i = 0; i < 4; ++i) bytes[i] = value >> (8 * i);
 }
-static bool validLimits(uint8_t minimum, uint8_t maximum) { return minimum >= 15 && maximum <= 110 && minimum < maximum; }
+static bool validLimits(uint8_t minimum, uint8_t maximum) { return minimum >= 15 && maximum <= 130 && minimum < maximum; }
 static bool configured() { return limits.schema == 1 && validLimits(limits.minimum, limits.maximum); }
 static bool updating() { return otaPhase >= 1 && otaPhase <= 4; }
 static void publishSettings() {

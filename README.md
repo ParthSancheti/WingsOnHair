@@ -1,8 +1,10 @@
 <p align="center"><img src="public/favicon.svg" width="80" alt="Wings On Hair butterfly hair-clip logo"></p>
 
+**v2.7.1: accepts saved ranges up to 130°; this assembled butterfly is confirmed at 45°–113°. Install the matching APK to keep live state in sync above 110°.**
+
 **v2.7: persistent wing travel, a manual USB endpoint slider, and signed Bluetooth firmware updates from GitHub. Fresh installs keep the motor off until a tested range is saved. One USB installation is required to add these features to v2.6 devices.**
 
-[Travel and OTA setup](docs/TRAVEL-AND-OTA.md) · [v2.7 release notes](docs/RELEASE-v2.7.0.md)
+[Travel and OTA setup](docs/TRAVEL-AND-OTA.md) · [v2.7.1 release notes](docs/RELEASE-v2.7.1.md)
 <h1 align="center">Wings On Hair</h1>
 <p align="center">A little movement. Entirely yours.<br>Android app · ESP32-C3 firmware · A butterfly you can build</p>
 <p align="center"><a href="https://github.com/ParthSancheti/WingsOnHair/releases/latest">Download APK & firmware</a> · <a href="docs/HARDWARE.md">Parts & wiring</a> · <a href="docs/CUSTOMIZE.md">Make your own version</a></p>

@@ -21,7 +21,7 @@ test('preset commands match the six-byte firmware protocol', () => {
 
 test('unsafe or lossy commands are rejected before they reach hardware', () => {
   for (const patch of [
-    { minAngle: 0 }, { maxAngle: 111 }, { minAngle: 85, maxAngle: 85 },
+    { minAngle: 0 }, { maxAngle: 131 }, { minAngle: 85, maxAngle: 85 },
     { mode: 7 }, { mode: -1 }, { speed: 3.1 }, { speed: 0.21 }, { speed: NaN },
     { impulseX: 0 }, { impulseY: 100 }, { impulseX: 40.2 }, { minAngle: '25' },
   ]) assert.throws(() => encodeCommand({ ...DEFAULT_SETTINGS, ...patch }));
@@ -83,6 +83,18 @@ test('v2 telemetry restores a paused mode and exact range after reconnect, retai
   bytes[17] = 76; bytes[18] = 6;
   assert.throws(() => decodeTelemetry(bytes), /Selected mode/);
   assert.equal(decodeTelemetry(packet()).mode, 1);
+});
+
+test('confirmed 45–113 travel survives telemetry and command reconciliation above 110 degrees', () => {
+  const bytes = new Uint8Array(19);
+  bytes.set(new Uint8Array(packet({ 4: 113, 5: 113 }).buffer));
+  bytes[1] = 2; bytes.set([45, 113, 1], 16);
+  const report = decodeTelemetry(bytes);
+  const live = reconcileWingTelemetry(DEFAULT_SETTINGS, report);
+  assert.equal(report.angle, 113);
+  assert.equal(live.settings.minAngle, 45);
+  assert.equal(live.settings.maxAngle, 113);
+  assert.deepEqual([...new Uint8Array(encodeCommand(live.settings).buffer)].slice(0, 3), [1, 45, 113]);
 });
 
 test('impulse easing stays monotone and within endpoints across the full editable range', () => {

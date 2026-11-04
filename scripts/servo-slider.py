@@ -43,7 +43,7 @@ class Slider:
         ttk.Label(panel, text='This first command sets an absolute servo position. Choose your old mode carefully.', wraplength=650).pack(anchor='w', pady=(6, 18))
         ttk.Label(panel, text='2. Move the end slider slowly, or use 1° steps').pack(anchor='w')
         ttk.Label(panel, textvariable=self.value, font=('Segoe UI', 30, 'bold'), foreground='#9b3569').pack(pady=(8, 0))
-        self.scale = ttk.Scale(panel, variable=self.end, from_=15, to=110, command=self.slide, state='disabled'); self.scale.pack(fill='x', pady=8)
+        self.scale = ttk.Scale(panel, variable=self.end, from_=15, to=130, command=self.slide, state='disabled'); self.scale.pack(fill='x', pady=8)
         step = ttk.Frame(panel); step.pack()
         self.minus = ttk.Button(step, text='− 1°', command=lambda: self.nudge(-1), state='disabled'); self.minus.pack(side='left', padx=6)
         self.plus = ttk.Button(step, text='+ 1°', command=lambda: self.nudge(1), state='disabled'); self.plus.pack(side='left', padx=6)
@@ -87,7 +87,7 @@ class Slider:
 
     def changed_mode(self, _=None):
         self.stop(); start = STARTS[self.mode.get()]
-        if start is not None: self.scale.configure(from_=start, to=110); self.end.set(start); self.value.set(f'{start}°')
+        if start is not None: self.scale.configure(from_=start, to=130); self.end.set(start); self.value.set(f'{start}°')
         self.controls(False)
 
     def arm(self):
@@ -100,7 +100,7 @@ class Slider:
         if self.armed: self.pending = angle
 
     def nudge(self, amount):
-        angle = max(STARTS[self.mode.get()], min(110, round(self.end.get()) + amount))
+        angle = max(STARTS[self.mode.get()], min(130, round(self.end.get()) + amount))
         self.end.set(angle); self.slide(str(angle))
 
     def stop(self):

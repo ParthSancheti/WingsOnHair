@@ -71,7 +71,7 @@ async function request(path, { raw = false, fetcher = fetch, signal } = {}) {
 }
 
 /** Remote README/release/commit strings are plain text. Render with textContent. */
-export async function checkForUpdates(currentVersion = '2.7.0', { fetcher = fetch, signal, releaseOnly = false } = {}) {
+export async function checkForUpdates(currentVersion = '2.7.1', { fetcher = fetch, signal, releaseOnly = false } = {}) {
   parseVersion(currentVersion);
   const requests = [
     request('/releases/latest', { fetcher, signal }),

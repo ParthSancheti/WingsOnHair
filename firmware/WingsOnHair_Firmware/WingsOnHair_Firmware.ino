@@ -1,5 +1,5 @@
 /**
- * Wings On Hair 2.7 — Parth Sancheti
+ * Wings On Hair 2.7.1 — Parth Sancheti
  * ESP32-C3 · Arduino-ESP32 3.3.12 · NimBLE-Arduino 2.5.2
  *
  * One SG90 drives the linked left/right wings. The reported angle is the
@@ -122,7 +122,7 @@ static float clampFloat(float value, float minimum, float maximum) {
 
 static bool decodeCommand(const uint8_t* bytes, size_t length, MotionCommand& result) {
   if (length != 6) return false;
-  if (bytes[0] > 6 || bytes[1] < 15 || bytes[2] > 110 || bytes[1] >= bytes[2] ||
+  if (bytes[0] > 6 || bytes[1] < 15 || bytes[2] > 130 || bytes[1] >= bytes[2] ||
       bytes[3] < 2 || bytes[3] > 30 || bytes[4] < 5 || bytes[4] > 95 ||
       bytes[5] < 5 || bytes[5] > 95) return false;
   result = {bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5]};

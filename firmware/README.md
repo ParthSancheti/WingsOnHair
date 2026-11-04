@@ -1,4 +1,4 @@
-# Wings On Hair firmware · 2.7
+# Wings On Hair firmware · 2.7.1
 
 ESP32-C3 BLE firmware for the companion app by **Parth Sancheti**. One SG90 drives mechanically linked left and right wings. The sketch uses Arduino-ESP32's LEDC peripheral directly; a separate Servo library is not required.
 
@@ -42,7 +42,7 @@ The companion app's GitHub update checker opens release information. This firmwa
 
 Confirm GPIO 4 against your actual board schematic. Avoid flash, USB, and strapping pins. Do not power an SG90 from an ESP32 GPIO or its 3.3 V rail. Use a supply that can handle servo startup/stall current, a common ground, and appropriate local decoupling. A single-cell battery needs a suitable regulator/boost supply and protected charging hardware; a fully charged Li-ion cell must not be connected directly to a 3.3 V input.
 
-Start with the linkage removed. Verify `SERVO_PULSE_MIN_US` (600) and `SERVO_PULSE_MAX_US` (2400), then calibrate for the particular servo. The application restricts requested motion to 15°–110°, but those angles are software conventions until the linkage is calibrated. Check the full sweep without binding before attaching wings or wearing the device. Quick-swap magnetic wings are a mechanical assembly feature, not something the firmware can detect.
+Start with the linkage removed. Verify `SERVO_PULSE_MIN_US` (600) and `SERVO_PULSE_MAX_US` (2400), then calibrate for the particular servo. The application restricts requested motion to 15°–130°, but those angles are software conventions until the linkage is calibrated. Check the full sweep without binding before attaching wings or wearing the device. Quick-swap magnetic wings are a mechanical assembly feature, not something the firmware can detect.
 
 On power-up, the sketch waits two seconds, makes **one gentle greeting flap** over the configured 45°–60° software range at 0.5 Hz, then parks and detaches PWM. A phone command or touch during the wait cancels the greeting. Start with the linkage removed and calibrate this range before wearing the clip: software angles cannot guarantee safe physical travel. Stop, or a disconnect while the phone controls motion, eases to the current minimum angle over 450 ms, holds 250 ms, then detaches PWM and drives the signal low. A touch-selected mode keeps running without a phone. Detaching removes commanded holding torque; it does not switch off the servo's power rail. Select a mechanism that can rest safely without holding torque.
 
@@ -63,8 +63,8 @@ Write **exactly six unsigned bytes**, with no text, JSON, delimiter, or checksum
 | Byte | Value | Accepted range |
 | --- | --- | --- |
 | 0 | Mode | 0–6 |
-| 1 | Minimum angle | 15–109; less than maximum |
-| 2 | Maximum angle | 16–110; greater than minimum |
+| 1 | Minimum angle | 15–129; less than maximum |
+| 2 | Maximum angle | 16–130; greater than minimum |
 | 3 | Frequency × 10 | 2–30 = 0.2–3.0 Hz |
 | 4 | First Bezier control x × 100 | 5–95 |
 | 5 | First Bezier control y × 100 | 5–95 |

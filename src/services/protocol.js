@@ -22,8 +22,8 @@ function integerInRange(value, min, max, label) {
 export function validateSettings(settings) {
   if (!settings || typeof settings !== 'object') throw new TypeError('Wing settings are required.');
   const mode = integerInRange(settings.mode, 0, 6, 'Mode');
-  const minAngle = integerInRange(settings.minAngle, 15, 110, 'Minimum angle');
-  const maxAngle = integerInRange(settings.maxAngle, 15, 110, 'Maximum angle');
+  const minAngle = integerInRange(settings.minAngle, 15, 130, 'Minimum angle');
+  const maxAngle = integerInRange(settings.maxAngle, 15, 130, 'Maximum angle');
   if (minAngle >= maxAngle) throw new RangeError('Minimum angle must be lower than maximum angle.');
   if (typeof settings.speed !== 'number' || !Number.isFinite(settings.speed) || settings.speed < 0.2 || settings.speed > 3) {
     throw new RangeError('Flap speed must be between 0.2 and 3 Hz.');
@@ -53,14 +53,14 @@ export function decodeTelemetry(input, receivedAt = Date.now()) {
   const version = view.getUint8(1);
   if (view.getUint8(0) !== 0x57 || !((version === 1 && view.byteLength === 16) || (version === 2 && view.byteLength === 19))) throw new Error('Unsupported Wings On Hair firmware protocol.');
   const bounds = version === 2 ? {
-    minAngle: integerInRange(view.getUint8(16), 15, 110, 'Telemetry minimum'),
-    maxAngle: integerInRange(view.getUint8(17), 15, 110, 'Telemetry maximum'),
+    minAngle: integerInRange(view.getUint8(16), 15, 130, 'Telemetry minimum'),
+    maxAngle: integerInRange(view.getUint8(17), 15, 130, 'Telemetry maximum'),
     selectedMode: integerInRange(view.getUint8(18), 1, 5, 'Selected mode'),
   } : {};
   if (version === 2 && bounds.minAngle >= bounds.maxAngle) throw new RangeError('Invalid telemetry angle range.');
   const mode = integerInRange(view.getUint8(3), 0, 6, 'Telemetry mode');
-  const angle = integerInRange(view.getUint8(4), 15, 110, 'Commanded angle');
-  const targetAngle = integerInRange(view.getUint8(5), 15, 110, 'Target angle');
+  const angle = integerInRange(view.getUint8(4), 15, 130, 'Commanded angle');
+  const targetAngle = integerInRange(view.getUint8(5), 15, 130, 'Target angle');
   const batteryCode = view.getUint8(7);
   if (batteryCode > 2) throw new RangeError('Unknown battery telemetry type.');
   const batteryValue = view.getUint8(6);

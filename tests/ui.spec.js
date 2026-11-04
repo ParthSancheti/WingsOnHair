@@ -236,11 +236,12 @@ test('travel edits do not move the device and saving requires a confirmed access
   });
   await page.locator('#play-button').click();
   await expect(page.locator('#sheet-title')).toHaveText('Wing travel');
-  await page.locator('#travel-end').fill('42');
+  await page.locator('#travel-start').fill('45');
+  await page.locator('#travel-end').fill('113');
   expect(await page.evaluate(() => window.testWings.commands.length)).toBe(0);
   await page.locator('#save-travel').click();
   await expect(page.locator('#travel-result')).toContainText('Saved inside the butterfly');
-  expect(await page.evaluate(() => window.testWings.saved)).toMatchObject({ start: 25, end: 42 });
+  expect(await page.evaluate(() => window.testWings.saved)).toMatchObject({ start: 45, end: 113 });
   expect(await page.evaluate(() => window.testWings.commands.map(value => value.mode))).toEqual([0]);
 });
 

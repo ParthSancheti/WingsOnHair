@@ -2,7 +2,7 @@ export const SETTINGS_UUID = '7a1b0004-6e3d-4b7a-9c21-8f5d0a2e6c10';
 export const OTA_CONTROL_UUID = '7a1b0005-6e3d-4b7a-9c21-8f5d0a2e6c10';
 export const OTA_DATA_UUID = '7a1b0006-6e3d-4b7a-9c21-8f5d0a2e6c10';
 export function validateTravel(start, end) {
-  if (!Number.isInteger(start) || !Number.isInteger(end) || start < 15 || end > 110 || start >= end) throw new Error('Choose a start and end between 15° and 110°, with the end above the start.');
+  if (!Number.isInteger(start) || !Number.isInteger(end) || start < 15 || end > 130 || start >= end) throw new Error('Choose a start and end between 15° and 130°, with the end above the start.');
   return { start, end };
 }
 export function encodeTravel(start, end, token) {

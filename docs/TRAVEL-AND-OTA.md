@@ -1,3 +1,7 @@
+# v2.7.1: confirmed assembly range
+
+This assembled unit was tested by its owner at **45° start/rest and 113° flap end**. Those values are saved on the device and retained across normal restarts and firmware upgrades. Use the v2.7.1 APK for ranges above 110°; the previous app rejected those telemetry values. Software accepts adjustments up to 130°, but each mechanism needs its own physical test. Fresh devices remain motionless until configured.
+
 # Saved wing travel and wireless firmware updates
 
 ## The one-time USB update

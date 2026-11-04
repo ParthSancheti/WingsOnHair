@@ -195,8 +195,8 @@ function travelMarkup() {
   const start = config?.start ?? 25, end = config?.end ?? 45;
   return `<span class="sheet-symbol">${icon('sliders')}</span><h2 id="sheet-title">Wing travel</h2><p class="sheet-copy">Keep the starting position that works. Reduce the flap end until the wings move freely.</p>
     <p class="travel-note">${supported ? config.configured ? 'These angles are saved inside your butterfly, including after power-off.' : 'Movement is disabled until you save your tested range.' : 'Connect a butterfly with firmware 2.7 or newer. Older firmware needs one USB update first.'}</p>
-    <div class="speed-readout"><label for="travel-start">Starting angle</label><output id="travel-start-value">${start}°</output></div><input id="travel-start" type="range" min="15" max="109" step="1" value="${start}">
-    <div class="speed-readout"><label for="travel-end">Flap end</label><output id="travel-end-value">${end}°</output></div><input id="travel-end" type="range" min="16" max="110" step="1" value="${end}">
+    <div class="speed-readout"><label for="travel-start">Starting angle</label><output id="travel-start-value">${start}°</output></div><input id="travel-start" type="range" min="15" max="129" step="1" value="${start}">
+    <div class="speed-readout"><label for="travel-end">Flap end</label><output id="travel-end-value">${end}°</output></div><input id="travel-end" type="range" min="16" max="130" step="1" value="${end}">
     <p class="about-note">Saving pauses the wings. It applies to every mode, touch control, flutter and the startup greeting. One motor moves both wings. These sliders do not move the motor while you drag them.</p>
     <p id="travel-result" role="status"></p><button class="primary-button pressable" id="save-travel" data-action="save-travel" data-press ${supported ? '' : 'disabled'}>Save on butterfly ${icon('check')}</button>`;
 }

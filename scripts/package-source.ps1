@@ -2,7 +2,7 @@ $ErrorActionPreference = 'Stop'
 $repository = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $outputDirectory = Join-Path $repository 'releases'
 New-Item -ItemType Directory -Force -Path $outputDirectory | Out-Null
-$outputPath = Join-Path $outputDirectory 'WingsOnHair-v2.7-source.zip'
+$outputPath = Join-Path $outputDirectory 'WingsOnHair-v2.7.1-source.zip'
 
 # Explicit allowlist: no local SDK paths, signing keys, dependencies, or build caches.
 $rootFiles = @('.gitignore', '.gitattributes', 'LICENSE', 'app.js', 'capacitor.config.json', 'index.html', 'package.json', 'package-lock.json', 'playwright.config.js', 'README.md', 'style.css', 'vite.config.js')
