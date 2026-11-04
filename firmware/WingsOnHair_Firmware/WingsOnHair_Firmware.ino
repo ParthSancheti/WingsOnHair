@@ -90,6 +90,7 @@ static float parkStartAngle = 15.0f;
 static float parkTargetAngle = 15.0f;
 static double cyclePhase = 0.0;
 static uint32_t parkStartedMs = 0;
+static uint32_t parkReachedMs = 0;
 static uint32_t lastServoMs = 0;
 static uint32_t lastLoopMs = 0;
 static uint32_t lastTelemetryMs = 0;
@@ -206,6 +207,7 @@ static void requestPark(uint32_t now) {
   parking = true;
   parkStartAngle = commandedAngle;
   parkStartedMs = now;
+  parkReachedMs = 0;
 }
 
 static void applyCommand(const MotionCommand& command, uint32_t now) {
@@ -283,18 +285,16 @@ static void tickServo(uint32_t now) {
 
   if (parking) {
     const uint32_t parkElapsed = now - parkStartedMs;
-    if (parkElapsed >= PARK_DURATION_MS + PARK_HOLD_MS) {
-      commandedAngle = parkTargetAngle;
-      targetAngle = parkTargetAngle;
-      outputServoAngle(commandedAngle);
-      detachServo();
-      parking = false;
-      return;
-    }
     const float t = clampFloat(parkElapsed / static_cast<float>(PARK_DURATION_MS), 0.0f, 1.0f);
     const float eased = t * t * (3.0f - 2.0f * t);
-    commandedAngle = parkStartAngle + (parkTargetAngle - parkStartAngle) * eased;
+    const float desired = parkStartAngle + (parkTargetAngle - parkStartAngle) * eased;
+    const float step = MAX_SLEW_DEGREES_PER_SECOND * fminf(elapsed, 50) / 1000.0f;
+    commandedAngle += clampFloat(desired - commandedAngle, -step, step);
     outputServoAngle(commandedAngle);
+    if (parkElapsed >= PARK_DURATION_MS && fabsf(commandedAngle - parkTargetAngle) < .05f) {
+      if (!parkReachedMs) parkReachedMs = now;
+      if (now - parkReachedMs >= PARK_HOLD_MS) { detachServo(); parking = false; }
+    } else parkReachedMs = 0;
     return;
   }
   if (motion.mode == 0 || !servoAttached) return;

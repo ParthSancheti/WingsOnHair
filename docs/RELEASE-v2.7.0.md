@@ -7,7 +7,7 @@ Save one tested movement range inside the ESP32-C3 and keep it after power-off. 
 ## Install once over USB
 
 1. Install `WingsOnHair-v2.7-debug.apk` from this release. This is a debug-signed personal prototype build.
-2. Open `firmware/WingsOnHair_Firmware/WingsOnHair_Firmware.ino` from the source package in Arduino IDE. Select **ESP32C3 Dev Module** and the board's actual COM port. Do not select ESP32-S3 or Ozobot DRVKit.
+2. Keep servo power disconnected during this first upload so the old test cannot run while plugging in. Open `firmware/WingsOnHair_Firmware/WingsOnHair_Firmware.ino` from the source package in Arduino IDE. Select **ESP32C3 Dev Module** and the board's actual COM port. Do not select ESP32-S3 or Ozobot DRVKit.
 3. Use Arduino-ESP32 **3.3.12**, NimBLE-Arduino **2.5.2**, and the default **4 MB / default OTA-capable partition scheme**. Upload the sketch. The precompiled USB bundle uses the same configuration.
 4. There is no movement until the range is configured. GPIO4 remains servo signal; GPIO3 remains the 3.3 V active-high touch sensor input.
 

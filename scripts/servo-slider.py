@@ -48,8 +48,8 @@ class Slider:
         self.minus = ttk.Button(step, text='− 1°', command=lambda: self.nudge(-1), state='disabled'); self.minus.pack(side='left', padx=6)
         self.plus = ttk.Button(step, text='+ 1°', command=lambda: self.nudge(1), state='disabled'); self.plus.pack(side='left', padx=6)
         actions = ttk.Frame(panel); actions.pack(fill='x', pady=15)
-        self.rest = ttk.Button(actions, text='Return to start', command=lambda: self.send('REST'), state='disabled'); self.rest.pack(side='left')
-        self.flap = ttk.Button(actions, text='One gentle flap', command=lambda: self.send(f'FLAP {round(self.end.get())}'), state='disabled'); self.flap.pack(side='left', padx=6)
+        self.rest = ttk.Button(actions, text='Return to start', command=lambda: self.move_once('REST'), state='disabled'); self.rest.pack(side='left')
+        self.flap = ttk.Button(actions, text='One gentle flap', command=lambda: self.move_once(f'FLAP {round(self.end.get())}'), state='disabled'); self.flap.pack(side='left', padx=6)
         self.save = ttk.Button(actions, text='Save for all modes', command=self.save_range, state='disabled'); self.save.pack(side='right')
         tk.Button(panel, text='STOP — MOTOR SIGNAL OFF', command=self.stop, bg='#a02f50', fg='white', activebackground='#7f1939', activeforeground='white', font=('Segoe UI', 13, 'bold'), relief='flat', pady=12).pack(fill='x')
         ttk.Label(panel, textvariable=self.report, wraplength=650).pack(anchor='w', pady=(12, 0))
@@ -63,6 +63,7 @@ class Slider:
 
     def controls(self, armed):
         self.armed = armed
+        if not armed: self.pending = None
         for widget in (self.scale, self.minus, self.plus, self.rest, self.flap): widget['state'] = 'normal' if armed else 'disabled'
         self.modes['state'] = 'disabled' if armed else 'readonly'
         self.enable['state'] = 'normal' if self.verified and not armed and STARTS[self.mode.get()] is not None else 'disabled'
@@ -106,12 +107,14 @@ class Slider:
         self.pending = None; self.send('STOP'); self.controls(False)
         self.report.set('Motor signal off. No automatic movement.')
 
+    def move_once(self, command):
+        self.pending = None
+        if self.armed: self.send(command)
+
     def save_range(self):
         start = STARTS[self.mode.get()]; end = round(self.end.get())
         if start is None or start >= end: self.report.set('Choose an end angle above the start first.'); return
         self.stop(); self.send(f'SAVE {start} {end}')
-        path = ROOT / '.tools' / 'chosen-wing-angles.json'; path.parent.mkdir(exist_ok=True)
-        path.write_text(json.dumps({'startAngle': start, 'endAngle': end, 'previousMode': self.mode.get()}, indent=2), encoding='utf-8')
         self.report.set('Waiting for the butterfly to confirm saving…')
 
     def disconnect(self):
@@ -132,7 +135,11 @@ class Slider:
                     if line.startswith('SAFEUSB 1 '):
                         self.verified = True; self.message.set('Connected · manual control ready')
                         self.controls(line.startswith('SAFEUSB 1 ON ')); self.report.set(line.replace('SAFEUSB 1 ', 'Motor ').replace('COMMAND', 'Commanded angle'))
-                    elif line.startswith('SAVED '): self.message.set('Angles saved inside the butterfly · retained after restart')
+                    elif line.startswith('SAVED '):
+                        _, first, last = line.split()
+                        path = ROOT / '.tools' / 'chosen-wing-angles.json'; path.parent.mkdir(exist_ok=True)
+                        path.write_text(json.dumps({'startAngle': int(first), 'endAngle': int(last), 'previousMode': self.mode.get()}, indent=2), encoding='utf-8')
+                        self.message.set('Angles saved inside the butterfly · retained after restart')
                     elif line.startswith('ERROR'): self.report.set(line)
                 now = time.monotonic()
                 if now - self.last_ping > .25: self.last_ping = now; self.send('PING')

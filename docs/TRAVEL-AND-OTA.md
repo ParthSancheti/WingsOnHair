@@ -2,7 +2,7 @@
 
 ## The one-time USB update
 
-The v2.6 firmware cannot save a travel range or receive OTA images. Install the v2.7 APK, then upload the v2.7 main sketch once over USB. Choose **ESP32C3 Dev Module**, Arduino-ESP32 3.3.12 and NimBLE-Arduino 2.5.2. Keep the default 4 MB partition layout with two OTA app slots. Installing the v2.7 source with a huge-app/no-OTA partition layout will prevent wireless updates.
+The v2.6 firmware cannot save a travel range or receive OTA images. Keep servo power disconnected during the first upload, so the old test cannot move the gears while you reconnect USB. Install the v2.7 APK, then upload the v2.7 main sketch once over USB. Choose **ESP32C3 Dev Module**, Arduino-ESP32 3.3.12 and NimBLE-Arduino 2.5.2. Keep the default 4 MB partition layout with two OTA app slots. Installing the v2.7 source with a huge-app/no-OTA partition layout will prevent wireless updates.
 
 Fresh devices do not move until a range is explicitly saved. The device loads its NVS range before allowing motion. Bad/missing configuration is treated as unconfigured. Updating the app or connecting a different phone does not replace the saved angles. A normal app-only OTA update retains NVS; erasing flash or changing partition layouts can remove those settings.
 
