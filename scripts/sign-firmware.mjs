@@ -1,6 +1,7 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { createHash, createPublicKey, sign } from 'node:crypto';
 import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 const [imagePath, outputDirectory = 'releases', privateKeyPath = process.env.WOH_FIRMWARE_SIGNING_KEY || '.tools/signing/firmware-private.pem'] = process.argv.slice(2);
 if (!imagePath) throw new Error('Usage: node scripts/sign-firmware.mjs APP-ONLY.bin [output-directory] [private-key.pem]');
 const { version } = JSON.parse(await readFile('package.json', 'utf8'));
@@ -12,7 +13,7 @@ if (!source.includes(`VERSION_CODE = ${versionCode};`)) throw new Error('Package
 const bytes = await readFile(imagePath);
 if (bytes.length < 256 || bytes.length > 0x140000 || bytes[0] !== 0xe9 || bytes.readUInt16LE(12) !== 5) throw new Error('Only an ESP32-C3 app-only image that fits the OTA slot can be signed.');
 const key = await readFile(privateKeyPath, 'utf8');
-const publishedKey = (await import(resolve('src/services/firmware-key.js'))).FIRMWARE_PUBLIC_KEY;
+const publishedKey = (await import(pathToFileURL(resolve('src/services/firmware-key.js')).href)).FIRMWARE_PUBLIC_KEY;
 if (createPublicKey(key).export({ type: 'spki', format: 'pem' }).toString() !== publishedKey) throw new Error('Signing key does not match the key trusted by this app/firmware.');
 const sha256 = createHash('sha256').update(bytes).digest('hex');
 const payload = `WingsOnHair-ESP32C3:${versionCode}:${bytes.length}:${sha256}`;
