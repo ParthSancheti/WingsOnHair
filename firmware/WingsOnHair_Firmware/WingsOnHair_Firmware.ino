@@ -1,5 +1,5 @@
 /**
- * Wings On Hair 2.6 — Parth Sancheti
+ * Wings On Hair 2.7 — Parth Sancheti
  * ESP32-C3 · Arduino-ESP32 3.3.12 · NimBLE-Arduino 2.5.2
  *
  * One SG90 drives the linked left/right wings. The reported angle is the
@@ -11,6 +11,8 @@
 #include <NimBLEDevice.h>
 #include <math.h>
 #include <string.h>
+#include "DeviceServices.h"
+#include "ManualControl.h"
 
 // GPIO 4 is available on common C3 boards; confirm against YOUR board schematic.
 // Do not use flash/USB/strapping pins. Change this pin before flashing if needed.
@@ -28,7 +30,7 @@ constexpr uint8_t SERVO_RESOLUTION_BITS = 14;
 // Conservative SG90 starting calibration. Tune with the mechanism detached.
 constexpr uint16_t SERVO_PULSE_MIN_US = 600;   // nominal 0 degrees
 constexpr uint16_t SERVO_PULSE_MAX_US = 2400;  // nominal 180 degrees
-constexpr float MAX_SLEW_DEGREES_PER_SECOND = 480.0f;
+constexpr float MAX_SLEW_DEGREES_PER_SECOND = 90.0f;
 constexpr uint32_t SERVO_TICK_MS = 20;
 constexpr uint32_t PARK_DURATION_MS = 450;
 constexpr uint32_t PARK_HOLD_MS = 250;
@@ -162,8 +164,8 @@ static float sampleMotion(double phase, const MotionCommand& command) {
 }
 
 static void outputServoAngle(float degrees) {
-  if (!servoAttached) return;
-  degrees = clampFloat(degrees, 15.0f, 110.0f);
+  if (!servoAttached || !device::configured() || device::updating()) return;
+  degrees = clampFloat(degrees, device::limits.minimum, device::limits.maximum);
   const float pulseUs = SERVO_PULSE_MIN_US +
       (SERVO_PULSE_MAX_US - SERVO_PULSE_MIN_US) * degrees / 180.0f;
   constexpr uint32_t maximumDuty = (1UL << SERVO_RESOLUTION_BITS) - 1;
@@ -172,6 +174,7 @@ static void outputServoAngle(float degrees) {
 }
 
 static bool attachServo() {
+  if (!device::configured() || device::updating() || manual::armed) return false;
   if (servoAttached) return true;
   servoAttached = ledcAttach(SERVO_PIN, SERVO_FREQUENCY_HZ, SERVO_RESOLUTION_BITS);
   if (servoAttached) outputServoAngle(commandedAngle);
@@ -206,8 +209,13 @@ static void requestPark(uint32_t now) {
 }
 
 static void applyCommand(const MotionCommand& command, uint32_t now) {
+  if (device::updating() || manual::armed) return;
+  if (!device::configured()) { motion.mode = 0; detachServo(); return; }
   if (command.mode == 6 && motion.mode != 6) beforeFlutter = motion;
   motion = command;
+  // The saved physical range applies equally to every app and touch preset.
+  motion.minimum = device::limits.minimum;
+  motion.maximum = device::limits.maximum;
   if (command.mode >= 1 && command.mode <= 5) selectedMode = command.mode;
   cyclePhase = 0.0;
   if (motion.mode == 0) {
@@ -224,6 +232,7 @@ static void applyCommand(const MotionCommand& command, uint32_t now) {
 }
 
 static void tickTouch(uint32_t now) {
+  if (device::updating() || manual::armed || !device::configured()) return;
   const bool raw = digitalRead(TOUCH_PIN) == HIGH;
   if (raw != touchRaw) {
     touchRaw = raw;
@@ -251,18 +260,23 @@ static void tickTouch(uint32_t now) {
 static void tickStartupFlap(uint32_t now) {
   if (!startupFlapPending || now - bootStartedMs < STARTUP_FLAP_DELAY_MS) return;
   startupFlapPending = false;
+  if (!device::configured() || device::updating() || manual::armed) return;
   if (controlSource != ControlSource::None) return;  // A user command takes priority.
 
-  const MotionCommand rest = {0, STARTUP_FLAP_MIN_ANGLE, STARTUP_FLAP_MAX_ANGLE, 5, 40, 20};
-  const MotionCommand greeting = {6, STARTUP_FLAP_MIN_ANGLE, STARTUP_FLAP_MAX_ANGLE, 5, 40, 20};
+  const uint8_t low = device::limits.minimum;
+  const uint8_t high = static_cast<uint8_t>(fminf(device::limits.maximum, low + 10));
+  const MotionCommand rest = {0, low, high, 5, 40, 20};
+  const MotionCommand greeting = {6, low, high, 5, 40, 20};
   motion = rest;
-  commandedAngle = STARTUP_FLAP_MIN_ANGLE;
-  targetAngle = STARTUP_FLAP_MIN_ANGLE;
+  commandedAngle = low;
+  targetAngle = low;
   applyCommand(greeting, now);  // One 2-second flap, then park and detach.
+  motion.maximum = high; // Greeting uses at most 10 degrees of the saved range.
   Serial.println("Power-on greeting: one gentle flap.");
 }
 
 static void tickServo(uint32_t now) {
+  if (device::updating() || manual::armed || !device::configured()) return;
   const uint32_t elapsed = now - lastServoMs;
   if (elapsed < SERVO_TICK_MS) return;
   lastServoMs = now;
@@ -294,7 +308,7 @@ static void tickServo(uint32_t now) {
     return;
   }
   cyclePhase = fmod(cyclePhase, 1.0);
-  targetAngle = clampFloat(sampleMotion(cyclePhase, motion), 15.0f, 110.0f);
+  targetAngle = clampFloat(sampleMotion(cyclePhase, motion), device::limits.minimum, device::limits.maximum);
   // Target is the curve; commanded is the limited pulse position. Reporting both
   // makes the physical slew limit visible instead of claiming perfect tracking.
   const float maximumStep = MAX_SLEW_DEGREES_PER_SECOND * fminf(elapsed, 50) / 1000.0f;
@@ -361,6 +375,7 @@ class WingServerCallbacks : public NimBLEServerCallbacks {
     }
     portEXIT_CRITICAL(&mailboxMux);
     if (wasActive) {
+      device::onDisconnect();
       NimBLEDevice::startAdvertising();
       Serial.println("Disconnected; park requested, advertising restarted.");
     }
@@ -388,13 +403,37 @@ class WingCommandCallbacks : public NimBLECharacteristicCallbacks {
 static WingServerCallbacks serverCallbacks;
 static WingCommandCallbacks commandCallbacks;
 
+static bool authorizedDeviceConnection(uint16_t handle) {
+  portENTER_CRITICAL(&mailboxMux);
+  const bool valid = activeConnection == handle;
+  portEXIT_CRITICAL(&mailboxMux);
+  return valid;
+}
+static void pauseAllMotion() {
+  startupFlapPending = false;
+  manual::stop();
+  detachServo();
+  parking = false; motion.mode = 0;
+  controlSource = ControlSource::None;
+  portENTER_CRITICAL(&mailboxMux);
+  mailboxPending = false;
+  portEXIT_CRITICAL(&mailboxMux);
+}
+
 void setup() {
   Serial.begin(115200);
   detachServo();  // No PWM during the two-second startup wait.
-  pinMode(TOUCH_PIN, INPUT);
+  device::loadLimits();
+  if (device::configured()) {
+    motion.minimum = device::limits.minimum; motion.maximum = device::limits.maximum;
+    commandedAngle = targetAngle = motion.minimum;
+  }
+  manual::begin(pauseAllMotion);
+  pinMode(TOUCH_PIN, INPUT_PULLDOWN);
   touchRaw = touchStable = digitalRead(TOUCH_PIN) == HIGH;
   touchChangedMs = millis();
   NimBLEDevice::init("WingsOnHair");
+  NimBLEDevice::setMTU(247);
   NimBLEServer* server = NimBLEDevice::createServer();
   server->setCallbacks(&serverCallbacks);
   NimBLEService* service = server->createService(SERVICE_UUID);
@@ -404,6 +443,7 @@ void setup() {
       TELEMETRY_UUID, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY, 19);
   const uint8_t initialTelemetry[19] = {0x57, 2, 0, 0, 15, 15, 255, 0, 0, 0, 0, 0, 0, 8, 35, 65, 15, 85, 1};
   telemetryCharacteristic->setValue(initialTelemetry, sizeof(initialTelemetry));
+  device::begin(service, authorizedDeviceConnection, pauseAllMotion);
   service->start();
 
   NimBLEAdvertising* advertising = NimBLEDevice::getAdvertising();
@@ -422,6 +462,13 @@ void loop() {
   const uint32_t elapsed = now - lastLoopMs;  // Unsigned difference handles rollover.
   lastLoopMs = now;
   uptimeMs += elapsed;
+  device::poll(now);
+  manual::poll();
+  if (device::rangeChanged) {
+    device::rangeChanged = false;
+    motion.minimum = device::limits.minimum; motion.maximum = device::limits.maximum;
+    commandedAngle = targetAngle = motion.minimum;
+  }
 #if WOH_ENABLE_RUNTIME_BATTERY_ESTIMATE
   const float estimatedCurrent = ESTIMATE_IDLE_MA + (servoAttached ? ESTIMATE_SERVO_EXTRA_MA : 0.0f);
   estimatedConsumedMah += estimatedCurrent * elapsed / 3600000.0;

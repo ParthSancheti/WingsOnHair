@@ -16,3 +16,5 @@ android/**/build/
 firmware/.tools/
 firmware/.build/
 releases/
+__pycache__/
+*.pyc

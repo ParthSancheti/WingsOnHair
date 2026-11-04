@@ -1,8 +1,12 @@
-# Wings On Hair firmware · 2.6
+# Wings On Hair firmware · 2.7
 
 ESP32-C3 BLE firmware for the companion app by **Parth Sancheti**. One SG90 drives mechanically linked left and right wings. The sketch uses Arduino-ESP32's LEDC peripheral directly; a separate Servo library is not required.
 
 New builders: start with the [illustrated parts, wiring and assembly guide](../docs/HARDWARE.md). This page is the detailed firmware and protocol reference.
+
+## Saved travel and signed OTA in v2.7
+
+See [the complete travel and update guide](../docs/TRAVEL-AND-OTA.md). Movement remains disabled until you explicitly save a tested range to NVS. Saved endpoints override every mode and survive restart. Manual USB control starts with PWM off. The new settings and OTA characteristics use UUID endings 0004, 0005 and 0006. OTA writes a verified signed app-only image to the inactive slot and retains NVS. One USB flash is needed to install these capabilities initially. The existing six-byte motion command and 19-byte telemetry remain compatible.
 
 ## Build and upload
 

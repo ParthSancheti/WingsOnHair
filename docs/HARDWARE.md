@@ -1,3 +1,5 @@
+> **v2.7 update:** use the [saved travel and USB slider guide](TRAVEL-AND-OTA.md). Fresh installations keep motion disabled until tested limits are saved. Stored limits apply to every function; the older ranges below describe the historical v2.6 presets.
+
 # Build your butterfly clip
 
 This is a **bench-first prototype**: an ESP32-C3, one positional micro servo and two linked wings. Code and electrical connections are provided. Fit the linkage and enclosure to your parts; there is no tested STL, PCB or production-ready wearable mechanism in this repository.

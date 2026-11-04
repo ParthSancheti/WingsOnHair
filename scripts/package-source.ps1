@@ -2,7 +2,7 @@ $ErrorActionPreference = 'Stop'
 $repository = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $outputDirectory = Join-Path $repository 'releases'
 New-Item -ItemType Directory -Force -Path $outputDirectory | Out-Null
-$outputPath = Join-Path $outputDirectory 'WingsOnHair-v2.6-source.zip'
+$outputPath = Join-Path $outputDirectory 'WingsOnHair-v2.7-source.zip'
 
 # Explicit allowlist: no local SDK paths, signing keys, dependencies, or build caches.
 $rootFiles = @('.gitignore', '.gitattributes', 'LICENSE', 'app.js', 'capacitor.config.json', 'index.html', 'package.json', 'package-lock.json', 'playwright.config.js', 'README.md', 'style.css', 'vite.config.js')
@@ -14,7 +14,7 @@ foreach ($directory in @('src', 'public', 'docs', 'tests', 'scripts', '.github',
     Get-ChildItem -LiteralPath (Join-Path $repository $directory) -File -Recurse -Force | ForEach-Object {
         $sourceRelative = [System.IO.Path]::GetRelativePath($repository, $_.FullName).Replace('\', '/')
         if ($sourceRelative -eq 'docs/CALIBRATION.md') { return }
-        if ($sourceRelative -notmatch '(^|/)(build|\.tooling|node_modules)/') { $paths.Add($_.FullName) }
+        if ($sourceRelative -notmatch '(^|/)(build|\.tooling|node_modules|__pycache__)/' -and $sourceRelative -notmatch '\.pyc$') { $paths.Add($_.FullName) }
     }
 }
 foreach ($relative in @('firmware/README.md', 'firmware/.gitignore')) { $paths.Add((Join-Path $repository $relative)) }

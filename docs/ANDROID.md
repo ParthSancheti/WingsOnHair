@@ -1,3 +1,5 @@
+> **v2.7:** About now includes Wing travel and Update butterfly. See [saved ranges, USB setup and signed GitHub OTA](TRAVEL-AND-OTA.md). Install this APK before the first v2.7 USB firmware upload.
+
 # Android build and device guide
 
 Wings On Hair uses Capacitor 8, a Vite web bundle, Android API 36, and native Bluetooth LE, App, Haptics, and Status Bar support. The refreshed interface is one screen with four modes, Start/Pause, a speed sheet, and local long-press previews. The app ID is `com.parthsancheti.wingsonhair`; Android version name is `2.6.0` and version code is `260`.

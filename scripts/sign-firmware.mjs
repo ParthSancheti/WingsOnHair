@@ -1,0 +1,26 @@
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { createHash, createPublicKey, sign } from 'node:crypto';
+import { resolve } from 'node:path';
+const [imagePath, outputDirectory = 'releases', privateKeyPath = process.env.WOH_FIRMWARE_SIGNING_KEY || '.tools/signing/firmware-private.pem'] = process.argv.slice(2);
+if (!imagePath) throw new Error('Usage: node scripts/sign-firmware.mjs APP-ONLY.bin [output-directory] [private-key.pem]');
+const { version } = JSON.parse(await readFile('package.json', 'utf8'));
+const parts = version.split('.').map(Number);
+if (parts.length !== 3 || parts.some(v => !Number.isInteger(v) || v < 0 || v > 99)) throw new Error('Use a stable major.minor.patch version with each component under 100.');
+const versionCode = parts[0] * 10000 + parts[1] * 100 + parts[2];
+const source = await readFile('firmware/WingsOnHair_Firmware/DeviceServices.h', 'utf8');
+if (!source.includes(`VERSION_CODE = ${versionCode};`)) throw new Error('Package and firmware version codes differ.');
+const bytes = await readFile(imagePath);
+if (bytes.length < 256 || bytes.length > 0x140000 || bytes[0] !== 0xe9 || bytes.readUInt16LE(12) !== 5) throw new Error('Only an ESP32-C3 app-only image that fits the OTA slot can be signed.');
+const key = await readFile(privateKeyPath, 'utf8');
+const publishedKey = (await import(resolve('src/services/firmware-key.js'))).FIRMWARE_PUBLIC_KEY;
+if (createPublicKey(key).export({ type: 'spki', format: 'pem' }).toString() !== publishedKey) throw new Error('Signing key does not match the key trusted by this app/firmware.');
+const sha256 = createHash('sha256').update(bytes).digest('hex');
+const payload = `WingsOnHair-ESP32C3:${versionCode}:${bytes.length}:${sha256}`;
+const signature = sign('sha256', Buffer.from(payload), { key, dsaEncoding: 'ieee-p1363' }).toString('base64');
+const name = `WingsOnHair-v${version}-esp32c3-ota.bin`;
+const manifest = { schema: 1, board: 'WingsOnHair-ESP32C3', version, versionCode, size: bytes.length, sha256, signature,
+  url: `https://github.com/ParthSancheti/WingsOnHair/releases/download/v${version}/${name}` };
+await mkdir(outputDirectory, { recursive: true });
+await writeFile(resolve(outputDirectory, name), bytes);
+await writeFile(resolve(outputDirectory, 'firmware-manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
+console.log(`Signed ${name}: ${bytes.length} bytes; SHA-256 ${sha256}`);

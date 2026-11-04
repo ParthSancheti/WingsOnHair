@@ -7,6 +7,9 @@ import { WingConnection } from './src/services/ble.js';
 import { reconcileWingTelemetry } from './src/services/live-state.js';
 import { DEFAULT_SETTINGS, PRESETS, sampleWingAngle, validateSettings } from './src/services/protocol.js';
 import { checkForUpdates } from './src/services/updates.js';
+import { validateTravel } from './src/services/device-protocol.js';
+import { verifyFirmwareManifest, verifyFirmwareImage } from './src/services/firmware.js';
+import { downloadGithubAsset } from './src/services/github-download.js';
 import { version as APP_VERSION } from './package.json';
 import { installPressFeedback } from './src/interactions.js';
 import { butterfly, logo, icon, escapeHtml } from './src/ui.js';
@@ -28,6 +31,7 @@ const state = {
   settings: { ...DEFAULT_SETTINGS }, running: false, connection: { status: 'disconnected', stability: 'offline' },
   telemetry: null, sheet: null, previewMode: null, commandPending: false, welcomeStep: 0,
   availableUpdate: null,
+  deviceSettings: null, firmwareBusy: false, firmwareCandidate: null,
   name: typeof storage.get('name') === 'string' ? storage.get('name').slice(0, 30) : '',
 };
 try { const saved = storage.get('simple.settings'); if (saved && moods.some(m => m.mode === saved.mode)) state.settings = validateSettings(saved); } catch { /* Use Calm for incompatible preferences. */ }
@@ -38,6 +42,7 @@ let toastTimer, sheetGeneration = 0, lastFocus, connectionBusy = false, lastHapt
 let lastAutomaticUpdateCheck = 0;
 let automaticUpdateCheckPending = false;
 const nativeListeners = [];
+let firmwareAbort = null;
 const ready = () => ['connected', 'demo'].includes(state.connection.status);
 const demo = () => state.connection.status === 'demo';
 
@@ -139,6 +144,7 @@ async function sendSettings(debounce = false) {
   if (debounce) sendTimer = setTimeout(send, 85); else await send();
 }
 async function chooseMode(mode) {
+  if (!allowMotion()) return;
   const preset = PRESETS.find(p => p.mode === mode); if (!preset) return;
   state.settings = { ...preset }; state.running = ready(); storage.set('simple.settings', state.settings); updateUI();
   if (!reducedMotion.matches) {
@@ -150,10 +156,12 @@ async function chooseMode(mode) {
 async function flutter() {
   localFlutterUntil = performance.now() + 800;
   if (!ready()) { toast('Connect your wings, or try preview.'); return; }
+  if (!allowMotion()) return;
   await connection.send({ ...state.settings, mode: 6, speed: 3 });
 }
 function setSheetInert(inert) { $('.app-shell').inert = inert || document.documentElement.classList.contains('launch-active'); document.documentElement.classList.toggle('sheet-open', inert); }
 function closeSheet({ cancelConnection = true } = {}) {
+  if (state.firmwareBusy) return;
   if (!state.sheet) return;
   const generation = ++sheetGeneration;
   if (cancelConnection && state.sheet === 'pair' && ['scanning', 'connecting'].includes(state.connection.status)) void connection.disconnect();
@@ -163,7 +171,7 @@ function closeSheet({ cancelConnection = true } = {}) {
 }
 function openSheet(type, previewMode = null) {
   ++sheetGeneration; lastFocus = document.activeElement; state.sheet = type; state.previewMode = previewMode; setSheetInert(true);
-  const content = type === 'pair' ? pairingMarkup() : type === 'speed' ? speedMarkup() : type === 'mode' ? modeMarkup(previewMode) : aboutMarkup();
+  const content = type === 'pair' ? pairingMarkup() : type === 'speed' ? speedMarkup() : type === 'mode' ? modeMarkup(previewMode) : type === 'travel' ? travelMarkup() : type === 'firmware' ? firmwareMarkup() : aboutMarkup();
   $('#sheet-root').innerHTML = `<div class="sheet-backdrop" data-action="dismiss"><section class="sheet glass press-surface ${type}-sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" tabindex="-1"><div class="sheet-grab" aria-hidden="true"></div><button class="sheet-close icon-button pressable" data-action="close" data-press aria-label="Close">${icon('close')}</button>${content}</section></div>`;
   updateUI(); $('.sheet').focus();
   if (type === 'speed') $('#speed-slider').addEventListener('input', () => {
@@ -171,6 +179,102 @@ function openSheet(type, previewMode = null) {
     $('#speed-slider').style.setProperty('--progress', `${(state.settings.speed - .2) / 2.8 * 100}%`);
     storage.set('simple.settings', state.settings); void sendSettings(true);
   });
+  if (type === 'travel') {
+    for (const id of ['travel-start', 'travel-end']) $(`#${id}`).addEventListener('input', updateTravelLabels);
+    updateTravelLabels();
+  }
+}
+function allowMotion() {
+  if (state.firmwareBusy) { toast('Wait for the firmware update to finish.'); return false; }
+  if (state.connection.status === 'connected' && !state.deviceSettings?.configured) { openSheet('travel'); return false; }
+  return true;
+}
+function travelMarkup() {
+  const config = state.deviceSettings;
+  const supported = state.connection.status === 'connected' && Boolean(config);
+  const start = config?.start ?? 25, end = config?.end ?? 45;
+  return `<span class="sheet-symbol">${icon('sliders')}</span><h2 id="sheet-title">Wing travel</h2><p class="sheet-copy">Keep the starting position that works. Reduce the flap end until the wings move freely.</p>
+    <p class="travel-note">${supported ? config.configured ? 'These angles are saved inside your butterfly, including after power-off.' : 'Movement is disabled until you save your tested range.' : 'Connect a butterfly with firmware 2.7 or newer. Older firmware needs one USB update first.'}</p>
+    <div class="speed-readout"><label for="travel-start">Starting angle</label><output id="travel-start-value">${start}°</output></div><input id="travel-start" type="range" min="15" max="109" step="1" value="${start}">
+    <div class="speed-readout"><label for="travel-end">Flap end</label><output id="travel-end-value">${end}°</output></div><input id="travel-end" type="range" min="16" max="110" step="1" value="${end}">
+    <p class="about-note">Saving pauses the wings. It applies to every mode, touch control, flutter and the startup greeting. One motor moves both wings. These sliders do not move the motor while you drag them.</p>
+    <p id="travel-result" role="status"></p><button class="primary-button pressable" id="save-travel" data-action="save-travel" data-press ${supported ? '' : 'disabled'}>Save on butterfly ${icon('check')}</button>`;
+}
+function updateTravelLabels() {
+  const start = Number($('#travel-start').value), end = Number($('#travel-end').value);
+  $('#travel-start-value').textContent = `${start}°`; $('#travel-end-value').textContent = `${end}°`;
+  const valid = start < end;
+  $('#save-travel').disabled = !valid || !state.deviceSettings || state.connection.status !== 'connected';
+  $('#travel-result').textContent = valid ? '' : 'The flap end must be above the starting angle.';
+}
+async function saveTravel() {
+  const start = Number($('#travel-start').value), end = Number($('#travel-end').value);
+  validateTravel(start, end);
+  $('#save-travel').disabled = true;
+  $('#travel-start').disabled = $('#travel-end').disabled = true;
+  try {
+    clearTimeout(sendTimer); ++sendGeneration; state.commandPending = false;
+    await connection.send({ ...state.settings, mode: 0 });
+    state.deviceSettings = await connection.saveTravel(start, end);
+    state.running = false; state.settings = { ...state.settings, minAngle: start, maxAngle: end };
+    updateUI();
+    if ($('#travel-result')) $('#travel-result').textContent = 'Saved inside the butterfly. Wings paused.';
+  } catch (error) { if ($('#travel-result')) $('#travel-result').textContent = error.message; }
+  finally { if ($('#save-travel')) { $('#save-travel').disabled = false; $('#travel-start').disabled = $('#travel-end').disabled = false; } }
+}
+function firmwareMarkup() {
+  const config = state.deviceSettings;
+  return `<span class="sheet-symbol">${icon('refresh')}</span><h2 id="sheet-title">Butterfly update</h2>
+    <p class="sheet-copy">Download verified firmware from GitHub and send it over Bluetooth.</p>
+    <p class="travel-note">${config?.ota ? `Connected firmware: ${Math.floor(config.versionCode / 10000)}.${Math.floor(config.versionCode / 100) % 100}.${config.versionCode % 100}. Saved angles are retained during wireless updates.` : 'Firmware 2.7 must be installed once over USB before wireless updates can work.'}</p>
+    <p class="about-note">Keep the butterfly powered and close to your phone. Wings stay stopped during installation. Keep this screen open.</p>
+    <p id="firmware-result" role="status"></p><progress id="firmware-progress" max="100" value="0" hidden></progress>
+    <button class="primary-button pressable" data-action="firmware-check" data-press id="firmware-check">Check GitHub</button>
+    <button class="primary-button pressable" data-action="firmware-install" data-press id="firmware-install" hidden>Download & update butterfly</button>
+    <button class="text-button" data-action="firmware-cancel" id="firmware-cancel" hidden>Cancel transfer</button>`;
+}
+async function checkFirmware() {
+  const button = $('#firmware-check'); button.disabled = true;
+  $('#firmware-result').textContent = 'Checking GitHub…';
+  state.firmwareCandidate = null; $('#firmware-install').hidden = true;
+  try {
+    const result = await checkForUpdates(APP_VERSION, { releaseOnly: true });
+    if (state.sheet !== 'firmware') return;
+    if (result.errors.release) throw new Error(result.errors.release);
+    const asset = result.release?.assets.find(item => item.name === 'firmware-manifest.json');
+    if (!asset) throw new Error('This release has no wireless firmware package.');
+    if (asset.size > 16384) throw new Error('The firmware manifest is too large.');
+    const manifest = await verifyFirmwareManifest(await downloadGithubAsset(asset.url, { json: true }));
+    if (state.sheet !== 'firmware') return;
+    if (!state.deviceSettings?.ota) throw new Error('Connect firmware 2.7 or newer after its first USB installation.');
+    if (manifest.versionCode <= state.deviceSettings.versionCode) { $('#firmware-result').textContent = 'Your butterfly firmware is up to date.'; return; }
+    state.firmwareCandidate = manifest;
+    $('#firmware-result').textContent = `Firmware ${manifest.version} is ready.`;
+    $('#firmware-install').hidden = false;
+  } catch (error) { if ($('#firmware-result')) $('#firmware-result').textContent = error.message; }
+  finally { if ($('#firmware-check')) $('#firmware-check').disabled = false; }
+}
+async function installFirmware() {
+  const manifest = state.firmwareCandidate;
+  if (!manifest || state.firmwareBusy) return;
+  state.firmwareBusy = true; firmwareAbort = new AbortController();
+  $('#firmware-check').disabled = true; $('#firmware-install').disabled = true;
+  $('#firmware-progress').hidden = false; $('#firmware-cancel').hidden = false;
+  try {
+    $('#firmware-result').textContent = 'Downloading and verifying firmware…';
+    const bytes = await verifyFirmwareImage(manifest, await downloadGithubAsset(manifest.url));
+    if (firmwareAbort.signal.aborted) throw new Error('Update cancelled.');
+    await connection.updateFirmware(manifest, bytes, { signal: firmwareAbort.signal, onProgress(percent) {
+      if ($('#firmware-progress')) { $('#firmware-progress').value = percent; $('#firmware-result').textContent = `Sending firmware · ${percent}%`; }
+    } });
+    $('#firmware-result').textContent = 'Transfer verified. The butterfly is restarting. Reconnect to confirm its new version.';
+  } catch (error) { if ($('#firmware-result')) $('#firmware-result').textContent = error.message; }
+  finally {
+    state.firmwareBusy = false; firmwareAbort = null;
+    if ($('#firmware-cancel')) $('#firmware-cancel').hidden = true;
+    if ($('#firmware-check')) $('#firmware-check').disabled = false;
+    if ($('#firmware-install')) $('#firmware-install').disabled = false;
+  }
 }
 function pairingMarkup() {
   return `<div class="radar"><i></i><i></i><i></i><div>${butterfly('pair')}</div></div><h2 id="sheet-title">Connect your wings</h2><p class="sheet-status" id="pair-status">Bring your wings close.</p><p class="sheet-copy" id="pair-copy">Power on your clip and keep it nearby.</p><p id="pair-error" class="inline-error" role="alert"></p><button class="primary-button pressable" id="connect-button" data-action="connect" data-press>${icon('bluetooth')} Connect wings</button><button class="text-button pressable" data-action="demo" data-press>Try without a device</button>${ready() ? '<button class="text-button disconnect-button pressable" data-action="disconnect" data-press>Disconnect</button>' : ''}`;
@@ -183,7 +287,7 @@ function modeMarkup(mode) {
   return `<div class="mode-preview-art">${butterfly('mode')}</div><h2 id="sheet-title">${item.name}</h2><p class="sheet-copy">${item.description}</p><span class="preview-label">Motion preview</span><button class="primary-button pressable" data-action="use-mode" data-use-mode="${item.mode}" data-press>Use ${item.name} ${icon('check')}</button>`;
 }
 function aboutMarkup() {
-  return `<span class="about-logo">${logo()}</span><h2 id="sheet-title">Wings On Hair</h2><p class="sheet-copy">Version ${APP_VERSION} · Made by <a href="https://github.com/ParthSancheti" target="_blank" rel="noopener noreferrer">Parth Sancheti</a></p><div class="settings-rows"><button class="settings-row pressable" data-action="updates" id="update-button" data-press>${icon('refresh')}<span>Check for updates</span>${icon('chevron')}</button><button class="settings-row pressable" data-action="replay" data-press>${icon('reset')}<span>Replay welcome</span>${icon('chevron')}</button><a class="settings-row" href="https://github.com/ParthSancheti/WingsOnHair" target="_blank" rel="noopener noreferrer">${icon('github')}<span>Project & hardware guide</span>${icon('external')}</a></div><p class="update-result" id="update-result" role="status"></p><div id="update-link"></div><p class="about-note">${state.telemetry?.batteryPercent != null ? `${state.telemetry.batteryKind === 'estimated' ? 'Estimated runtime left' : 'Battery'}: ${state.telemetry.batteryPercent}%. ` : ''}The runtime estimate assumes a full 150 mAh cell at power-on and is not a charge measurement.</p>`;
+  return `<span class="about-logo">${logo()}</span><h2 id="sheet-title">Wings On Hair</h2><p class="sheet-copy">Version ${APP_VERSION} · Made by <a href="https://github.com/ParthSancheti" target="_blank" rel="noopener noreferrer">Parth Sancheti</a></p><div class="settings-rows"><button class="settings-row pressable" data-action="travel" data-press>${icon('sliders')}<span>Wing travel</span>${icon('chevron')}</button><button class="settings-row pressable" data-action="firmware" data-press>${icon('refresh')}<span>Update butterfly</span>${icon('chevron')}</button><button class="settings-row pressable" data-action="updates" id="update-button" data-press>${icon('refresh')}<span>Check for updates</span>${icon('chevron')}</button><button class="settings-row pressable" data-action="replay" data-press>${icon('reset')}<span>Replay welcome</span>${icon('chevron')}</button><a class="settings-row" href="https://github.com/ParthSancheti/WingsOnHair" target="_blank" rel="noopener noreferrer">${icon('github')}<span>Project & hardware guide</span>${icon('external')}</a></div><p class="update-result" id="update-result" role="status"></p><div id="update-link"></div><p class="about-note">${state.telemetry?.batteryPercent != null ? `${state.telemetry.batteryKind === 'estimated' ? 'Estimated runtime left' : 'Battery'}: ${state.telemetry.batteryPercent}%. ` : ''}The runtime estimate assumes a full 150 mAh cell at power-on and is not a charge measurement.</p>`;
 }
 function finishWelcome() { state.welcome = false; storage.set('onboarded', true); renderView(); haptic('success'); }
 async function startDemo() {
@@ -198,6 +302,12 @@ async function connect() {
   try {
     await connection.connect(); if (state.connection.status !== 'connected') return;
     haptic('success');
+    if (!state.deviceSettings?.configured) {
+      await connection.send({ ...state.settings, mode: 0 });
+      if (state.welcome) finishWelcome();
+      openSheet('travel');
+      return;
+    }
     await new Promise(resolve => setTimeout(resolve, reducedMotion.matches ? 0 : 650));
     if (generation !== sheetGeneration || state.connection.status !== 'connected') return;
     if (state.welcome) finishWelcome(); closeSheet({ cancelConnection: false });
@@ -267,7 +377,13 @@ document.addEventListener('click', async event => {
       case 'demo': await startDemo(); break;
       case 'disconnect': await connection.disconnect(); closeSheet(); break;
       case 'flutter': await flutter(); break;
-      case 'play': if (!ready()) { openSheet('pair'); break; } state.running = !state.running; updateUI(); await sendSettings(); break;
+      case 'play': if (!ready()) { openSheet('pair'); break; } if (!allowMotion()) break; state.running = !state.running; updateUI(); await sendSettings(); break;
+      case 'travel': openSheet('travel'); break;
+      case 'save-travel': await saveTravel(); break;
+      case 'firmware': openSheet('firmware'); break;
+      case 'firmware-check': await checkFirmware(); break;
+      case 'firmware-install': await installFirmware(); break;
+      case 'firmware-cancel': firmwareAbort?.abort(); break;
       case 'use-mode': await chooseMode(+button.dataset.useMode); closeSheet(); break;
       case 'updates': await checkUpdates(); break;
       case 'replay': state.running = false; await sendSettings(); closeSheet(); state.welcome = true; state.welcomeStep = 0; renderView(); launchIntro(); break;
@@ -285,9 +401,10 @@ document.addEventListener('keydown', event => {
 });
 connection.addEventListener('state', event => {
   const previous = state.connection.status; state.connection = event.detail;
-  if (!ready()) { clearTimeout(sendTimer); ++sendGeneration; state.commandPending = false; commandGraceUntil = 0; state.running = false; state.telemetry = null; } updateUI();
+  if (!ready()) { clearTimeout(sendTimer); ++sendGeneration; state.commandPending = false; commandGraceUntil = 0; state.running = false; state.telemetry = null; state.deviceSettings = null; } updateUI();
   if (previous === 'connected' && event.detail.status === 'disconnected') toast('Wings disconnected. Tap to reconnect.');
 });
+connection.addEventListener('device-settings', event => { state.deviceSettings = event.detail; });
 connection.addEventListener('telemetry', event => {
   state.telemetry = event.detail;
   if (!state.commandPending && Date.now() > commandGraceUntil) {
@@ -318,7 +435,7 @@ function animate(now) {
   }
   animationFrame = requestAnimationFrame(animate);
 }
-async function suspend() { clearTimeout(sendTimer); ++sendGeneration; state.commandPending = false; cancelAnimationFrame(animationFrame); if (ready()) { state.running = false; updateUI(); await sendSettings(); } }
+async function suspend() { clearTimeout(sendTimer); ++sendGeneration; state.commandPending = false; cancelAnimationFrame(animationFrame); if (state.firmwareBusy) { firmwareAbort?.abort(); return; } if (ready()) { state.running = false; updateUI(); await sendSettings(); } }
 function resume() { cancelAnimationFrame(animationFrame); animationFrame = requestAnimationFrame(animate); void checkUpdatesAutomatically(); }
 document.addEventListener('visibilitychange', () => { if (document.hidden) void suspend(); else resume(); });
 async function initializeNative() {

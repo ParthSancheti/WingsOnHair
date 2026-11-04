@@ -1,6 +1,8 @@
 import { Capacitor } from '@capacitor/core';
 import { BleClient } from '@capacitor-community/bluetooth-le';
 import { COMMAND_UUID, DEFAULT_SETTINGS, DEVICE_NAME, SERVICE_UUID, TELEMETRY_UUID, decodeTelemetry, encodeCommand, sampleWingAngle, validateSettings } from './protocol.js';
+import { SETTINGS_UUID, OTA_CONTROL_UUID, OTA_DATA_UUID, decodeDeviceSettings, decodeOtaStatus, encodeTravel } from './device-protocol.js';
+import { verifyFirmwareManifest, verifyFirmwareImage, firmwareStream } from './firmware.js';
 
 const errorMessage = (error) => {
   const message = error?.message || String(error);
@@ -12,7 +14,7 @@ const errorMessage = (error) => {
 
 /** A real BLE transport and an explicitly separate, opt-in preview transport. */
 export class WingConnection extends EventTarget {
-  constructor({ client = BleClient, platform = Capacitor.getPlatform() } = {}) {
+  constructor({ client = BleClient, platform = Capacitor.getPlatform(), verifyManifest = verifyFirmwareManifest, verifyImage = verifyFirmwareImage } = {}) {
     super();
     this.client = client;
     this.platform = platform;
@@ -27,6 +29,9 @@ export class WingConnection extends EventTarget {
     this._writing = false;
     this._lastWrite = 0;
     this._disposed = false;
+    this.deviceSettings = null;
+    this._updating = false;
+    this._verifyManifest = verifyManifest; this._verifyImage = verifyImage;
   }
 
   _emit(name, detail) { this.dispatchEvent(new CustomEvent(name, { detail })); }
@@ -164,6 +169,7 @@ export class WingConnection extends EventTarget {
       this._setState({ status: 'connected', error: null, isDemo: false, stability: this.state.lastTelemetry ? 'live' : 'waiting' });
       this._startHealthCheck();
       if (this.platform !== 'web') this._startRssi(session, device.deviceId);
+      await this.readDeviceSettings().catch(() => {}); // v2.6 remains connectable.
       return this.state;
     } catch (error) {
       if (session === this._session) {
@@ -249,6 +255,7 @@ export class WingConnection extends EventTarget {
   }
 
   async send(settings) {
+    if (this._updating) throw new Error('Wait for the firmware update to finish.');
     const validated = validateSettings(settings);
     if (this.state.status === 'demo') {
       if (validated.mode === 6 && this.settings.mode !== 6) this._demoResume = { ...this.settings };
@@ -308,6 +315,7 @@ export class WingConnection extends EventTarget {
     const scanTask = this._scanTask;
     ++this._session;
     this._deviceId = null;
+    this.deviceSettings = null;
     this._cancelScan?.();
     this._clearTimers();
     this._rejectPending(new Error('Connection closed.'));
@@ -326,5 +334,92 @@ export class WingConnection extends EventTarget {
     await this.disconnect();
     if (this._initialized && this.platform !== 'web') await this.client.stopEnabledNotifications().catch(() => {});
     this._initialized = false;
+  }
+
+  async readDeviceSettings() {
+    if (this.state.status !== 'connected' || !this._deviceId) throw new Error('Connect the butterfly first.');
+    const session = this._session;
+    const value = await this.client.read(this._deviceId, SERVICE_UUID, SETTINGS_UUID, { timeout: 3000 });
+    const settings = decodeDeviceSettings(value);
+    if (session !== this._session) throw new Error('The butterfly disconnected.');
+    this.deviceSettings = settings;
+    this._emit('device-settings', settings);
+    return settings;
+  }
+
+  async saveTravel(start, end) {
+    if (this._updating) throw new Error('A firmware update is in progress.');
+    await this.readDeviceSettings();
+    const session = this._session, token = (this._travelToken = ((this._travelToken || 0) + 1) & 65535);
+    await this.client.write(this._deviceId, SERVICE_UUID, SETTINGS_UUID, encodeTravel(start, end, token), { timeout: 3000 });
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline) {
+      if (session !== this._session) throw new Error('Disconnected before the save was confirmed.');
+      await new Promise(resolve => setTimeout(resolve, 60));
+      let settings;
+      try { settings = await this.readDeviceSettings(); } catch (error) { if (session !== this._session) throw error; continue; }
+      if (settings.token !== token) continue;
+      if (settings.error) throw new Error(settings.error === 1 ? 'The movement range is invalid.' : 'The butterfly could not save the angles. Try again.');
+      if (!settings.configured || settings.start !== start || settings.end !== end) throw new Error('The saved range did not match.');
+      return settings;
+    }
+    throw new Error('The butterfly did not confirm saving. Reconnect and check the range.');
+  }
+
+  async updateFirmware(manifest, image, { onProgress = () => {}, signal } = {}) {
+    if (this._updating) throw new Error('An update is already in progress.');
+    await this._verifyManifest(manifest);
+    await this._verifyImage(manifest, image);
+    const settings = await this.readDeviceSettings();
+    if (!settings.ota || manifest.versionCode < settings.versionCode) throw new Error('This firmware cannot be installed on the connected butterfly.');
+    await this.send({ ...this.settings, mode: 0 });
+    this._updating = true;
+    const session = this._session, deviceId = this._deviceId;
+    const assertSession = () => {
+      if (signal?.aborted) throw new Error('Update cancelled. The previous firmware remains available.');
+      if (session !== this._session || this.state.status !== 'connected') throw new Error('Bluetooth disconnected during the update. Reconnect and retry.');
+    };
+    const write = async (characteristic, bytes) => {
+      assertSession();
+      await this.client.write(deviceId, SERVICE_UUID, characteristic, new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), { timeout: 10000 });
+    };
+    const waitFor = async predicate => {
+      const deadline = Date.now() + 15000;
+      while (Date.now() < deadline) {
+        assertSession();
+        const report = decodeOtaStatus(await this.client.read(deviceId, SERVICE_UUID, OTA_CONTROL_UUID, { timeout: 5000 }));
+        if (report?.phase === 5) throw new Error(`Butterfly rejected the update (code ${report.error}). The old firmware is retained.`);
+        if (report && predicate(report)) return report;
+        await new Promise(resolve => setTimeout(resolve, 15));
+      }
+      throw new Error('The butterfly stopped acknowledging the transfer. Reconnect and retry.');
+    };
+    try {
+      const begin = new Uint8Array(9); begin[0] = 1;
+      const view = new DataView(begin.buffer); view.setUint32(1, image.length, true); view.setUint32(5, manifest.versionCode, true);
+      await write(OTA_CONTROL_UUID, begin);
+      await waitFor(report => report.phase === 1 && report.offset === 0 && report.versionCode === manifest.versionCode && report.size === image.length);
+      let mtu = 23;
+      if (this.platform !== 'web') { try { mtu = await this.client.getMtu(deviceId); } catch { /* Default ATT payload. */ } }
+      const chunkSize = Math.max(1, Math.min(244, Number.isFinite(mtu) ? mtu - 3 : 20) - 4);
+      const stream = firmwareStream(manifest, image);
+      for (let offset = 0; offset < stream.length;) {
+        assertSession();
+        const count = Math.min(chunkSize, stream.length - offset);
+        const chunk = new Uint8Array(4 + count); new DataView(chunk.buffer).setUint32(0, offset, true);
+        chunk.set(stream.subarray(offset, offset + count), 4);
+        await write(OTA_DATA_UUID, chunk);
+        offset += count;
+        await waitFor(report => report.offset === offset && [1, 2, 3].includes(report.phase));
+        onProgress(Math.min(99, Math.floor(Math.max(0, offset - 96) * 100 / image.length)));
+      }
+      await write(OTA_CONTROL_UUID, Uint8Array.of(2));
+      await waitFor(report => report.phase === 4);
+      onProgress(100);
+      return { rebooting: true, versionCode: manifest.versionCode };
+    } catch (error) {
+      if (session === this._session) await this.client.write(deviceId, SERVICE_UUID, OTA_CONTROL_UUID, new DataView(Uint8Array.of(3).buffer), { timeout: 3000 }).catch(() => {});
+      throw error;
+    } finally { this._updating = false; }
   }
 }
