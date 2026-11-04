@@ -17,7 +17,7 @@ class Slider:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title('Wings On Hair — live endpoint slider')
-        self.root.geometry('720x650'); self.root.minsize(680, 640)
+        self.root.geometry('720x760'); self.root.minsize(680, 740)
         style = ttk.Style(); style.theme_use('clam')
         style.configure('.', font=('Segoe UI', 11), background='#f6f2f7')
         style.configure('TButton', padding=(12, 9))
