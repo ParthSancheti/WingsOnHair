@@ -75,7 +75,7 @@ static void poll() {
     if (fabsf(target - angle) < .01f && stage) {
       if (stage == 1) { target = end; stage = 2; }
       else if (stage == 2) { target = rest; stage = 3; }
-      else { stage = 0; status(); }
+      else { stop(); status(); }
     }
   }
 }

@@ -234,7 +234,7 @@ static void applyCommand(const MotionCommand& command, uint32_t now) {
 }
 
 static void tickTouch(uint32_t now) {
-  if (device::updating() || manual::armed || !device::configured()) return;
+  const bool blocked = device::updating() || manual::armed || !device::configured();
   const bool raw = digitalRead(TOUCH_PIN) == HIGH;
   if (raw != touchRaw) {
     touchRaw = raw;
@@ -243,6 +243,7 @@ static void tickTouch(uint32_t now) {
   if (raw == touchStable || now - touchChangedMs < TOUCH_DEBOUNCE_MS) return;
   touchStable = raw;
   if (!touchStable) return;  // One mode change per touch, even if held.
+  if (blocked) return; // Consume held touches during calibration/update; do not replay them later.
 
   startupFlapPending = false;
   const uint8_t nextMode = motion.mode >= 1 && motion.mode <= 4
